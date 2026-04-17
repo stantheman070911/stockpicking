@@ -22,6 +22,17 @@ from taiwan_equity_toolkit.parsers import (
 )
 
 
+def _sum_required(records: list[object], attr: str) -> Optional[float]:
+    """Sum an attribute across records, but surface missing inputs as None."""
+    values: list[float] = []
+    for record in records:
+        value = getattr(record, attr, None)
+        if value is None:
+            return None
+        values.append(float(value))
+    return sum(values)
+
+
 @dataclass
 class Metric:
     """A single metric value with provenance."""
@@ -56,8 +67,17 @@ def cfo_to_ni_ratio(income: list[IncomeStatement], cash: list[CashFlow], n_qtrs:
     if not inc_ttm or not cf_ttm:
         return Metric("CFO/NI", None, "x", None, "TaiwanStockFinancialStatements + TaiwanStockCashFlowsStatement", "insufficient data")
 
-    ni_sum = sum((r.net_income or 0) for r in inc_ttm)
-    cfo_sum = sum((r.cfo or 0) for r in cf_ttm)
+    ni_sum = _sum_required(inc_ttm, "net_income")
+    cfo_sum = _sum_required(cf_ttm, "cfo")
+    if ni_sum is None or cfo_sum is None:
+        return Metric(
+            "CFO/NI",
+            None,
+            "x",
+            inc_ttm[-1].date,
+            "TaiwanStockFinancialStatements + TaiwanStockCashFlowsStatement",
+            "missing quarter in trailing window",
+        )
 
     if ni_sum == 0:
         return Metric("CFO/NI", None, "x", inc_ttm[-1].date, "TaiwanStockFinancialStatements + TaiwanStockCashFlowsStatement", "NI sum is zero")
@@ -122,7 +142,9 @@ def roe_proxy(income: list[IncomeStatement], balance: list[BalanceSheet]) -> Met
     bs = latest(balance)
     if not inc_ttm or not bs or bs.equity is None:
         return Metric("ROE (proxy)", None, "%", bs.date if bs else None, "TaiwanStockFinancialStatements + TaiwanStockBalanceSheet", "missing data")
-    ni_sum = sum((r.net_income or 0) for r in inc_ttm)
+    ni_sum = _sum_required(inc_ttm, "net_income")
+    if ni_sum is None:
+        return Metric("ROE (proxy)", None, "%", bs.date, "TaiwanStockFinancialStatements + TaiwanStockBalanceSheet", "missing quarter in trailing window")
     if bs.equity == 0:
         return Metric("ROE (proxy)", None, "%", bs.date, "TaiwanStockFinancialStatements + TaiwanStockBalanceSheet", "equity zero")
     return Metric("ROE (proxy)", ni_sum / bs.equity * 100, "%", bs.date, "TaiwanStockFinancialStatements + TaiwanStockBalanceSheet", "trailing 4Q NI / latest equity")
@@ -143,8 +165,10 @@ def net_debt_to_ebitda(balance: list[BalanceSheet], income: list[IncomeStatement
     if nd is None:
         return Metric("Net debt / EBITDA", None, "x", bs.date, "TaiwanStockBalanceSheet + TaiwanStockFinancialStatements", "net debt unavailable")
 
-    ebit_sum = sum((r.operating_income or 0) for r in inc_ttm)
-    dna_sum = sum((r.depreciation or 0) for r in inc_ttm)
+    ebit_sum = _sum_required(inc_ttm, "operating_income")
+    dna_sum = _sum_required(inc_ttm, "depreciation")
+    if ebit_sum is None or dna_sum is None:
+        return Metric("Net debt / EBITDA", None, "x", bs.date, "TaiwanStockBalanceSheet + TaiwanStockFinancialStatements", "missing quarter in trailing window")
     ebitda = ebit_sum + dna_sum
     if ebitda <= 0:
         return Metric("Net debt / EBITDA", None, "x", bs.date, "TaiwanStockBalanceSheet + TaiwanStockFinancialStatements", "EBITDA non-positive")
@@ -158,8 +182,10 @@ def interest_coverage(income: list[IncomeStatement], n_qtrs: int = 4) -> Metric:
     if not inc_ttm:
         return Metric("Interest coverage", None, "x", None, "TaiwanStockFinancialStatements", "no data")
 
-    ebit = sum((r.operating_income or 0) for r in inc_ttm)
-    ie = sum((r.interest_expense or 0) for r in inc_ttm)
+    ebit = _sum_required(inc_ttm, "operating_income")
+    ie = _sum_required(inc_ttm, "interest_expense")
+    if ebit is None or ie is None:
+        return Metric("Interest coverage", None, "x", inc_ttm[-1].date, "TaiwanStockFinancialStatements", "missing quarter in trailing window")
     if ie == 0:
         return Metric("Interest coverage", None, "x", inc_ttm[-1].date, "TaiwanStockFinancialStatements", "interest expense zero or missing")
     return Metric("Interest coverage", ebit / abs(ie), "x", inc_ttm[-1].date, "TaiwanStockFinancialStatements", f"trailing {n_qtrs}Q")
@@ -190,8 +216,13 @@ def free_cash_flow_margin(cash: list[CashFlow], income: list[IncomeStatement], n
     if not cf_ttm or not inc_ttm:
         return Metric("FCF margin", None, "%", None, "TaiwanStockCashFlowsStatement + TaiwanStockFinancialStatements", "insufficient data")
 
-    fcf_sum = sum((r.free_cash_flow or 0) for r in cf_ttm)
-    rev_sum = sum((r.revenue or 0) for r in inc_ttm)
+    fcf_values = [r.free_cash_flow for r in cf_ttm]
+    if any(v is None for v in fcf_values):
+        return Metric("FCF margin", None, "%", cf_ttm[-1].date, "TaiwanStockCashFlowsStatement + TaiwanStockFinancialStatements", "missing quarter in trailing window")
+    fcf_sum = sum(float(v) for v in fcf_values if v is not None)
+    rev_sum = _sum_required(inc_ttm, "revenue")
+    if rev_sum is None:
+        return Metric("FCF margin", None, "%", cf_ttm[-1].date, "TaiwanStockCashFlowsStatement + TaiwanStockFinancialStatements", "missing quarter in trailing window")
     if rev_sum == 0:
         return Metric("FCF margin", None, "%", cf_ttm[-1].date, "TaiwanStockCashFlowsStatement + TaiwanStockFinancialStatements", "revenue zero")
     return Metric("FCF margin", fcf_sum / rev_sum * 100, "%", cf_ttm[-1].date, "TaiwanStockCashFlowsStatement + TaiwanStockFinancialStatements", f"trailing {n_qtrs}Q")

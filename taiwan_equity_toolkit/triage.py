@@ -111,8 +111,14 @@ def run(
                           (today - timedelta(days=30)).strftime("%Y-%m-%d"))
         if not susp.empty:
             # If resumption_date in future or missing, treat as currently suspended
-            active = susp[susp.get("resumption_date", "").fillna("").astype(str) > today.strftime("%Y-%m-%d")] \
-                if "resumption_date" in susp.columns else susp
+            if "resumption_date" in susp.columns:
+                resumption = susp["resumption_date"].fillna("").astype(str).str.strip()
+                active = susp[
+                    (resumption == "") |
+                    (resumption > today.strftime("%Y-%m-%d"))
+                ]
+            else:
+                active = susp
             if not active.empty:
                 result.checks.append(TriageCheck(
                     "Trading suspension", False,

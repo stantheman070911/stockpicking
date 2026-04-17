@@ -566,6 +566,8 @@ def _check_hard_fails(
     income: list[parsers.IncomeStatement],
     cash: list[parsers.CashFlow],
     balance: list[parsers.BalanceSheet],
+    sub_3a: SubLayerScore,
+    sub_3b: SubLayerScore,
     sub_3c: SubLayerScore,
     sub_3e: SubLayerScore,
     th: Gate3Thresholds,
@@ -597,12 +599,30 @@ def _check_hard_fails(
     findings.append(HardFailFinding("Governance red flags", triggered_3, detail_3))
 
     # 4. Ownership/derivatives conflict with fundamentals
-    # Conservative proxy: 3C score < 6 (net outflow + weak margin structure) + fundamentals OK
+    # Weak 3C alone is not evidence of a true cross-data conflict.
+    # Only auto-trigger when fundamentals are otherwise strong and 3E also flags
+    # corroborating data-integrity concerns that make the conflict real.
     triggered_4 = False
     detail_4 = "not triggered"
-    if sub_3c.score < 6:
+    fundamentals_strong = (
+        sub_3a.score >= (sub_3a.max_score * 0.6) and
+        sub_3b.score >= (sub_3b.max_score * 0.6)
+    )
+    data_integrity_flagged = any(
+        component["check"] == "Monthly↔Quarterly revenue consistency" and component["points"] <= 2
+        for component in sub_3e.components
+    )
+    if sub_3c.score < 6 and fundamentals_strong and data_integrity_flagged:
         triggered_4 = True
-        detail_4 = f"Ownership structure weak (3C score {sub_3c.score:.1f}/20) — check for unresolved conflict"
+        detail_4 = (
+            f"Ownership structure weak (3C score {sub_3c.score:.1f}/20) despite strong 3A/3B "
+            "and flagged 3E inconsistencies"
+        )
+    elif sub_3c.score < 6:
+        detail_4 = (
+            f"3C score {sub_3c.score:.1f}/20 is weak, but that alone is not a hard-fail "
+            "without corroborating conflict evidence"
+        )
     findings.append(HardFailFinding("Unresolved cross-data conflict", triggered_4, detail_4))
 
     # 5. Extreme leverage
@@ -671,7 +691,7 @@ def run(
     total = sum(s.score for s in sub_layers)
 
     # Hard fails
-    hard_fails = _check_hard_fails(income, cash, balance, s_3c, s_3e, thresholds)
+    hard_fails = _check_hard_fails(income, cash, balance, s_3a, s_3b, s_3c, s_3e, thresholds)
     hard_fail_triggered = any(hf.triggered for hf in hard_fails)
 
     # Verdict

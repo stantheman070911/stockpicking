@@ -100,6 +100,25 @@ class RunTop200ScreenTests(unittest.TestCase):
         self.assertEqual(conditional, ["2303"])
         self.assertEqual(final[0]["gate3_score"], 82.5)
 
+    def test_compile_final_excludes_gate65_rejects(self) -> None:
+        final = screen.compile_final(
+            ["2330", "2303"],
+            {
+                "2330": SimpleNamespace(total_score=90.0, verdict="Pass", hard_fail_triggered=False),
+                "2303": SimpleNamespace(total_score=85.0, verdict="Pass", hard_fail_triggered=False),
+            },
+            {
+                "2330": SimpleNamespace(verdict="Enter Now"),
+                "2303": SimpleNamespace(verdict="Reject for Book Fit"),
+            },
+            {
+                "2330": SimpleNamespace(adv_ntd=100_000_000),
+                "2303": SimpleNamespace(adv_ntd=100_000_000),
+            },
+        )
+
+        self.assertEqual([record["stock_id"] for record in final], ["2330"])
+
     def test_main_writes_universe_provenance_and_structured_gate1_rejects(self) -> None:
         class DummyClient:
             def __init__(self, token: str):
@@ -118,6 +137,8 @@ class RunTop200ScreenTests(unittest.TestCase):
             triage_result = SimpleNamespace(adv_ntd=123_000_000, passed=True)
             gate3_result = SimpleNamespace(total_score=88.0, verdict="Pass", hard_fail_triggered=False)
             gate65_result = SimpleNamespace(verdict="Enter Now")
+            gate4_result = {"passed": True, "peer_ids": ["2303", "3711"], "comparison": None, "reason": "ok"}
+            gate5_result = {"passed": True, "report": None, "reason": "ok"}
 
             with patch.object(screen, "FinMindClient", DummyClient):
                 with patch.object(
@@ -138,9 +159,11 @@ class RunTop200ScreenTests(unittest.TestCase):
                     ):
                         with patch.object(screen, "run_mass_triage", return_value=(["2330"], {"2330": triage_result})):
                             with patch.object(screen, "run_gate3_batch", return_value=(["2330"], {"2330": gate3_result})):
-                                with patch.object(screen, "run_gate65_batch", return_value=(["2330"], {"2330": gate65_result})):
-                                    with patch.object(screen, "RESULTS_PATH", str(results_path)):
-                                        final = screen.main()
+                                with patch.object(screen, "run_gate4_batch", return_value=(["2330"], {"2330": gate4_result})) as gate4_mock:
+                                    with patch.object(screen, "run_gate5_batch", return_value=(["2330"], {"2330": gate5_result})) as gate5_mock:
+                                        with patch.object(screen, "run_gate65_batch", return_value=(["2330"], {"2330": gate65_result})) as gate65_mock:
+                                            with patch.object(screen, "RESULTS_PATH", str(results_path)):
+                                                final = screen.main()
 
             payload = json.loads(results_path.read_text(encoding="utf-8"))
             self.assertEqual(final[0]["gate3_score"], 88.0)
@@ -148,6 +171,11 @@ class RunTop200ScreenTests(unittest.TestCase):
             self.assertEqual(payload["universe_as_of"], "2026-04-17")
             self.assertEqual(payload["gate1_rejects"]["2603"]["gate"], "Gate 1")
             self.assertIn("reason", payload["gate1_rejects"]["2603"])
+            self.assertEqual(payload["funnel"]["gate4_pass"], 1)
+            self.assertEqual(payload["funnel"]["gate5_pass"], 1)
+            gate4_mock.assert_called_once_with(["2330"])
+            gate5_mock.assert_called_once_with(["2330"])
+            gate65_mock.assert_called_once_with(["2330"])
 
 
 if __name__ == "__main__":
