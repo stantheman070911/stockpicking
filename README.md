@@ -1,182 +1,140 @@
 # Taiwan Equity Stock-Picking System
 
-An AI-driven, deterministic screening framework for Taiwan Stock Exchange (TWSE) and TPEx securities. Screens the TAIEX Top-200 universe through a 7-gate + triage methodology backed by the FinMind API to produce a ranked, auditable watchlist.
+AI-assisted Taiwan equity screening, memo preparation, and batch ranking built on deterministic toolkit outputs and explicit analyst workflow.
 
----
+## Architecture
 
-## What It Does
+The screening process is organized as four parts:
 
-Takes 200 of the largest Taiwan-listed stocks and runs them through a sequential gate pipeline:
+1. `Industry / Macro`
+2. `Company Quality`
+3. `Setup / Entry`
+4. `Synthesis`
 
-1. **Gate 1** — Industry directional filter (macro-aligned sector buckets)
-2. **Gate 2** — Company qualitative check (moat, cleanest representation)
-3. **Triage Filter** — Cheap mechanical screens: liquidity, suspension, staleness, solvency collapse
-4. **Gate 3** — Forensic quality scorecard (100-pt, 5 sub-layers, 7 hard-fail overrides)
-5. **Gate 4** — Peer validation via async batch comparison
-6. **Gate 5** — Value-chain / supply-chain positioning
-7. **Gate 6** — Portfolio fit (judgment)
-8. **Gate 6.5** — Entry architecture: valuation percentile, realized vol, book correlation
-9. **Gate 7** — Thesis & named catalyst (judgment)
+The three workstreams run independently and feed a single synthesis checkpoint that records thesis, risks, position-sizing context, and manual requirements.
 
-Output: `screen_results.json` with a top-10 ranked list, full audit trail of all rejects by gate, and every metric cited with dataset name and as-of date.
+## Execution Paths
 
----
+### Default executable path
 
-## Project Structure
+- Runs end to end from `python run_top200_screen.py`
+- Uses the datasets and functions available in the configured FinMind environment
+- Does not fabricate unavailable checks
+- Emits explicit states for every automated assessment:
+  - `passed`
+  - `failed`
+  - `not_assessed`
+  - `manual_review_required`
 
-```
-stockpicking/
-├── run_top200_screen.py              # Main entry point — full TAIEX Top-200 pipeline
-├── Taiwan_Equity_Agent_System_Prompt.md  # AI agent identity, rules, canonical workflow
-├── Stock_Selection_Framework.md      # Authoritative gate methodology specification
-├── Finmind.md                        # FinMind API datasets, tokens, rate limits
-├── data/
-│   └── taiex_top200_snapshot.json    # Fallback universe (200 stock IDs, Apr 2026)
-├── taiwan_equity_toolkit/
-│   ├── config.py                     # All thresholds and tunable parameters
-│   ├── client.py                     # FinMind REST wrapper (auth, retry, async batch)
-│   ├── parsers.py                    # FinMind long-format → typed dataclass records
-│   ├── metrics.py                    # Derived financial ratios with source citations
-│   ├── triage.py                     # Triage Filter (9 cheap checks)
-│   ├── gate3.py                      # Gate 3 forensic scorecard
-│   ├── gate65.py                     # Gate 6.5 entry architecture
-│   ├── peers.py                      # Gate 4 peer comparison (async batch)
-│   ├── value_chain.py                # Gate 5 supply-chain positioning
-│   ├── memo.py                       # Structured memo formatter
-│   ├── full_screen_demo.py           # Single-stock demo pipeline
-│   └── validate_setup.py             # API connectivity validator
-└── tests/
-    ├── test_run_top200_screen.py
-    ├── test_gate3.py
-    ├── test_metrics.py
-    ├── test_triage.py
-    ├── test_value_chain.py
-    └── test_validate_setup.py
-```
+### Overlay and manual path
 
----
+- Holds checks that are valuable but not available in the default executable path
+- Uses one of:
+  - `manual workflow`
+  - `optional adapter`
+  - `deferred scaffold`
+- Keeps missing automation visible instead of silently dropping the finding
 
-## Setup
+## Methodology Highlights
 
-### Requirements
+- Broker-branch `分點` is excluded from automated scoring.
+- Convertible-bond review lives in the overlay/manual path.
+- `景氣對策信號` is context, not executable timing logic.
+- Setup logic uses daily data rather than tick or snapshot feeds.
+- Position sizing is hybrid: Python computes mechanical caps and a sizing band, and the analyst supplies conviction.
+- Correlation above `0.70` requires explicit justification rather than an automatic reject.
+- Every final memo must make room for:
+  - variant perception
+  - invalidation
+  - scenario EV framing
+  - sell discipline
+  - pre-mortem
+  - management forensic
+  - monitoring cadence
+  - decision journal
+  - post-mortem trigger
 
-```bash
-pip install -U FinMind pandas requests
-```
+## Commands
 
-No other dependencies. Python 3.9+.
-
-### FinMind Tokens
-
-Two tokens are pre-configured in `Finmind.md` and used by the pipeline with automatic failover:
-
-- **Primary:** registered to `stantheman911@gmail.com`
-- **Backup:** registered to `lamylu0811@gmail.com`
-
-Rate limits: 600 req/hour (authenticated), 300 req/hour (free tier).
-
----
-
-## Usage
-
-### Validate API connectivity first
-
-```bash
-python taiwan_equity_toolkit/validate_setup.py
-# with specific stocks:
-python taiwan_equity_toolkit/validate_setup.py 2330 2317 2454
-```
-
-### Single-stock demo
-
-```bash
-python taiwan_equity_toolkit/full_screen_demo.py 2330
-python taiwan_equity_toolkit/full_screen_demo.py 2330 --peers 2303,6770 --book 2317,2454 --size-ntd 10000000
-```
-
-### Full Top-200 screen
+Run the batch screen:
 
 ```bash
 python run_top200_screen.py
 ```
 
-Outputs `screen_results.json` with:
-- `top_10`: ranked selections with composite scores
-- `all_ranked`: complete ordered list of passers
-- `rejects`: full audit trail keyed by gate (Gate 1, Triage, Gate 3, Gate 4, Gate 5, Gate 6.5)
-- `token_usage`: API request counts per token
-
-### Run tests
+Validate the environment:
 
 ```bash
-python -m pytest tests/
+python taiwan_equity_toolkit/validate_setup.py
 ```
 
----
+Run a single-name demo:
 
-## Key Configuration (`taiwan_equity_toolkit/config.py`)
+```bash
+python taiwan_equity_toolkit/full_screen_demo.py 2330
+```
 
-| Parameter | Default | Purpose |
-|---|---|---|
-| `min_adv_ntd` | NT$50M | Triage liquidity floor |
-| `cfo_to_ni_healthy` | 0.8x | Gate 3 operating quality threshold |
-| `interest_coverage_min` | 2.0x | Gate 3 debt servicing minimum |
-| `net_debt_to_ebitda_warning` | 3.0x | Gate 3 leverage caution level |
-| `net_debt_to_ebitda_hardfail` | 5.0x | Gate 3 hard-fail override |
-| `pass_threshold` | 80 | Gate 3 pass score |
-| `conditional_threshold` | 65 | Gate 3 conditional score |
-| `correlation_hardfail` | 0.85 | Gate 6.5 portfolio overlap reject |
-| `TRIAGE_WORKERS` | 8 | Parallel workers for triage |
-| `GATE3_WORKERS` | 4 | Parallel workers for Gate 3 |
-| `INTENDED_POSITION_NTD` | NT$5M | Position size for liquidity checks |
+Run tests:
 
----
+```bash
+python3 -m unittest discover -s tests
+```
 
-## Gate 3 Scorecard (100 points)
+## Output Contract
 
-| Sub-layer | Weight | What It Measures |
-|---|---|---|
-| 3A Operating Quality | 25 pts | Revenue growth, margin direction, CFO/NI, ROE |
-| 3B Balance Sheet | 35 pts | Leverage, liquidity, interest coverage, FCF integrity |
-| 3C Ownership | 20 pts | Institutional flow, foreign ownership trend, margin/short structure |
-| 3D Derivatives | 10 pts | CB presence, futures/options confirms thesis |
-| 3E Data Integrity | 10 pts | Monthly/quarterly consistency, governance red flags |
+The main artifact is `screen_results.json`.
 
-**Verdicts:** Pass ≥ 80 · Conditional 65–79 · Fail < 65
+It contains:
 
-**Hard-fail overrides (any one = immediate reject regardless of score):**
-1. Refinancing wall + weak interest coverage
-2. Persistent CFO/NI divergence (4+ quarters < 0.5x)
-3. Governance red flags (auditor change, dilution, related-party transactions)
-4. Ownership/derivatives conflict with fundamentals
-5. Extreme leverage (net debt/EBITDA > 5x)
-6. Repeat dilution without repair
-7. Excessive data gaps (> 50% missing critical fields)
+- `schema_version`
+- `top10`
+- `all_ranked`
+- `funnel`
+- `removed_or_downgraded_signals`
+- `metadata`
 
----
+Each ranked name includes:
 
-## Architecture Notes
+- composite score
+- per-workstream status
+- entry verdict
+- thesis stub
+- primary reason
+- manual requirement count
 
-- **Fail-closed, sequential gates:** Failing any gate stops processing that stock.
-- **Cheap before expensive:** Triage (fast API checks) runs before Gate 3 (heavy financial analysis).
-- **Async batch:** Peer comparisons (`peers.py`) use concurrent fetches — critical for throughput.
-- **Citation discipline:** Every `Metric` object carries `.source`, `.as_of`, `.unit`. `Metric.cite()` is the standard output.
-- **Token failover:** Pipeline tracks usage and rolls over from primary to backup token automatically.
-- **Snapshot fallback:** Live TAIFEX universe fetch with JSON snapshot fallback for resilience.
-- **No price targets:** Framework stops at actionable watchlist. No forward projections without named, dated catalyst.
+## Data-Availability Handling
 
----
+Unavailable or out-of-scope checks do not stay inside live score weights unless a defensible executable proxy exists.
 
-## Data Sources
+The system responds to missing data with one of:
 
-All data sourced from [FinMind](https://finmindtrade.com/) free-tier API (75+ Taiwan datasets):
+- `not_assessed`
+- `manual_review_required`
+- `warn-and-continue`
 
-- **Price & volume:** `TaiwanStockPrice`, `TaiwanStockPEInstitutional`
-- **Financials:** `TaiwanStockFinancialStatements`, `TaiwanStockBalanceSheet`, `TaiwanStockCashFlowsStatement`
-- **Monthly revenue:** `TaiwanStockMonthRevenue`
-- **Institutional flow:** `TaiwanStockInstitutionalInvestorsBuySell`
-- **Margin/short:** `TaiwanStockMarginPurchaseShortSale`
-- **Derivatives:** `TaiwanFuturesDaily`, `TaiwanOptionDaily`
-- **Macro:** `TaiwanBusinessIndicator`, `TaiwanDollarFuturesDaily`
+## Public Interfaces
 
-See `Finmind.md` for the full dataset catalog and tier requirements.
+Supported toolkit entry points:
+
+- `triage.run(...)`
+- `gate3.run(...)`
+- `gate65.run(...)`
+- `peers.compare(...)`
+- `value_chain.analyze(...)`
+- `memo.FullScreenMemo(...)`
+
+Primary implementation modules:
+
+- `taiwan_equity_toolkit/workstream_industry.py`
+- `taiwan_equity_toolkit/workstream_company.py`
+- `taiwan_equity_toolkit/workstream_setup.py`
+- `taiwan_equity_toolkit/synthesis.py`
+
+## Repo Map
+
+- `Stock_Selection_Framework.md`: screening methodology
+- `Taiwan_Equity_Agent_System_Prompt.md`: agent operating model
+- `Finmind.md`: dataset reference and tokens
+- `run_top200_screen.py`: batch screen entry point
+- `taiwan_equity_toolkit/`: reusable toolkit
+- `templates/`: manual workflow templates

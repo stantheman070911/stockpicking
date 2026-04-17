@@ -3,35 +3,35 @@ import unittest
 import pandas as pd
 
 from taiwan_equity_toolkit import value_chain
+from tests.support import DummyFreeTierClient
 
 
-class EmptySignalClient:
-    def industry_chain(self):
-        return pd.DataFrame(
-            [
-                {
-                    "stock_id": "2330",
-                    "industry": "Semiconductor",
-                    "sub_industry": "Foundry",
-                },
-                {
-                    "stock_id": "2303",
-                    "industry": "Semiconductor",
-                    "sub_industry": "Foundry",
-                },
-            ]
+class LegacyChainClient(DummyFreeTierClient):
+    def __init__(self):
+        super().__init__(
+            dataset_map={
+                "TaiwanStockMonthRevenue": {"2303": pd.DataFrame()},
+                "TaiwanStockFinancialStatements": {"2303": pd.DataFrame()},
+                "TaiwanStockInstitutionalInvestorsBuySell": {"2303": pd.DataFrame()},
+            },
+            dataset_singletons={
+                "TaiwanStockIndustryChain": pd.DataFrame(
+                    [
+                        {"stock_id": "2330", "industry": "Semiconductor", "sub_industry": "Foundry"},
+                        {"stock_id": "2303", "industry": "Semiconductor", "sub_industry": "Foundry"},
+                    ]
+                )
+            },
         )
-
-    def get_multi(self, dataset: str, stock_ids: list[str], start_date: str):
-        return {stock_id: pd.DataFrame() for stock_id in stock_ids}
 
 
 class ValueChainSignalTests(unittest.TestCase):
-    def test_analyze_omits_empty_placeholder_signals(self) -> None:
-        report = value_chain.analyze(EmptySignalClient(), stock_id="2330")
+    def test_analyze_supports_legacy_industry_chain_fallback(self) -> None:
+        report = value_chain.analyze(LegacyChainClient(), stock_id="2330")
 
+        self.assertEqual(report.position.mapping_source, "legacy_industry_chain_fallback")
         self.assertEqual(report.upstream_signals, [])
-        self.assertTrue(any("no usable upstream signal data" in note for note in report.notes))
+        self.assertTrue(any("no usable proxy-chain signal data" in note for note in report.notes))
 
 
 if __name__ == "__main__":

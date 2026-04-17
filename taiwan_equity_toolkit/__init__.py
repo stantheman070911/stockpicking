@@ -36,11 +36,13 @@ Module layout:
 from taiwan_equity_toolkit import (
     config, client, parsers, metrics,
     triage, gate3, gate65, peers, value_chain, memo,
+    models, data_policy, workstream_industry, workstream_company,
+    workstream_setup, synthesis, sizing, manual_workflows,
 )
 from taiwan_equity_toolkit.client import FinMindClient
 from taiwan_equity_toolkit.metrics import Metric
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "FinMindClient",
@@ -55,4 +57,12 @@ __all__ = [
     "peers",
     "value_chain",
     "memo",
+    "models",
+    "data_policy",
+    "workstream_industry",
+    "workstream_company",
+    "workstream_setup",
+    "synthesis",
+    "sizing",
+    "manual_workflows",
 ]

@@ -1,0 +1,142 @@
+{
+  "version": "v2",
+  "groups": {
+    "semiconductor_supply_chain": {
+      "label": "Semiconductor Supply Chain",
+      "supply_chain_heavy": true,
+      "stock_ids": ["2330", "2303", "6770", "2308", "3711", "2449", "3034", "3443", "3661", "3715", "2379", "6415", "6239", "5269", "2492", "6282"],
+      "role_map": {
+        "2330": "foundry",
+        "2303": "foundry",
+        "6770": "foundry",
+        "2308": "osat",
+        "3711": "osat",
+        "2449": "testing",
+        "3034": "ic_design",
+        "3443": "wafer",
+        "3661": "asic",
+        "3715": "memory",
+        "2379": "board",
+        "6415": "sensor",
+        "6239": "memory_packaging",
+        "5269": "connectivity",
+        "2492": "passives",
+        "6282": "materials"
+      }
+    },
+    "server_hardware": {
+      "label": "Server / ODM Hardware",
+      "supply_chain_heavy": true,
+      "stock_ids": ["2317", "2382", "3231", "2324", "2356", "3017", "6669", "3037", "3044", "2376"],
+      "role_map": {
+        "2317": "ems",
+        "2382": "odm",
+        "3231": "odm",
+        "2324": "odm",
+        "2356": "power_supply",
+        "3017": "thermal",
+        "6669": "connectors",
+        "3037": "pcb",
+        "3044": "display",
+        "2376": "server_platform"
+      }
+    },
+    "financials": {
+      "label": "Financials",
+      "supply_chain_heavy": false,
+      "stock_ids": ["2880", "2881", "2882", "2883", "2884", "2885", "2886", "2887", "2889", "2890", "2891", "2892", "5871", "5880"]
+    },
+    "shipping": {
+      "label": "Shipping / Logistics",
+      "supply_chain_heavy": false,
+      "stock_ids": ["2603", "2606", "2609", "2610", "2615", "2618", "2633", "2634", "2637", "2645", "2646"]
+    },
+    "materials": {
+      "label": "Materials / Basic Industries",
+      "supply_chain_heavy": false,
+      "stock_ids": ["1101", "1102", "1301", "1303", "1319", "1326", "1402", "1476", "1477", "1503", "1504", "1513", "1519", "1605", "1717", "1802", "1907", "2002", "2006", "2027", "2105", "2206", "2207", "4763", "6505"]
+    },
+    "telecom": {
+      "label": "Telecom",
+      "supply_chain_heavy": false,
+      "stock_ids": ["2412", "3045", "4904"]
+    },
+    "consumer_retail": {
+      "label": "Consumer / Retail",
+      "supply_chain_heavy": false,
+      "stock_ids": ["1210", "1215", "1216", "1229", "2912", "2915", "8454", "9910", "9917", "9941", "9945"]
+    },
+    "industrials": {
+      "label": "Industrials / Automation",
+      "supply_chain_heavy": false,
+      "stock_ids": ["1504", "1519", "1560", "1590", "2049", "2059", "2360", "2395", "2467", "4583", "6196", "6805", "6890"]
+    }
+  },
+  "industry_category_groups": {
+    "半導體業": {
+      "group": "semiconductor_supply_chain",
+      "label": "Semiconductor Supply Chain",
+      "supply_chain_heavy": true
+    },
+    "電腦及週邊設備業": {
+      "group": "server_hardware",
+      "label": "Server / ODM Hardware",
+      "supply_chain_heavy": true
+    },
+    "電子零組件業": {
+      "group": "server_hardware",
+      "label": "Electronics Components",
+      "supply_chain_heavy": true
+    },
+    "金融保險業": {
+      "group": "financials",
+      "label": "Financials",
+      "supply_chain_heavy": false
+    },
+    "航運業": {
+      "group": "shipping",
+      "label": "Shipping / Logistics",
+      "supply_chain_heavy": false
+    },
+    "塑膠工業": {
+      "group": "materials",
+      "label": "Materials / Basic Industries",
+      "supply_chain_heavy": false
+    },
+    "水泥工業": {
+      "group": "materials",
+      "label": "Materials / Basic Industries",
+      "supply_chain_heavy": false
+    },
+    "鋼鐵工業": {
+      "group": "materials",
+      "label": "Materials / Basic Industries",
+      "supply_chain_heavy": false
+    },
+    "通信網路業": {
+      "group": "telecom",
+      "label": "Telecom",
+      "supply_chain_heavy": false
+    },
+    "食品工業": {
+      "group": "consumer_retail",
+      "label": "Consumer / Retail",
+      "supply_chain_heavy": false
+    },
+    "貿易百貨業": {
+      "group": "consumer_retail",
+      "label": "Consumer / Retail",
+      "supply_chain_heavy": false
+    },
+    "其他電子業": {
+      "group": "industrials",
+      "label": "Industrials / Automation",
+      "supply_chain_heavy": false
+    },
+    "電機機械": {
+      "group": "industrials",
+      "label": "Industrials / Automation",
+      "supply_chain_heavy": false
+    }
+  }
+}

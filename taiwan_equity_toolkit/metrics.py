@@ -276,6 +276,67 @@ def correlation_to_series(primary_df: pd.DataFrame, other_df: pd.DataFrame, look
     return Metric("Correlation", corr, "", merged.iloc[-1]["date"], "TaiwanStockPriceAdj", f"{lookback}d returns")
 
 
+def market_cap_proxy_ntd(price_df: pd.DataFrame, shareholding_df: pd.DataFrame) -> Metric:
+    """
+    Estimate market cap using free-tier close price and issued-share count.
+    """
+    if price_df.empty or shareholding_df.empty:
+        return Metric(
+            "Market cap proxy",
+            None,
+            " NT$",
+            None,
+            "TaiwanStockPrice + TaiwanStockShareholding",
+            "missing price or shareholding data",
+        )
+
+    price_sorted = price_df.sort_values("date").copy()
+    latest_price = price_sorted.iloc[-1]
+    close = pd.to_numeric(latest_price.get("close"), errors="coerce")
+    if pd.isna(close):
+        return Metric(
+            "Market cap proxy",
+            None,
+            " NT$",
+            latest_price.get("date"),
+            "TaiwanStockPrice + TaiwanStockShareholding",
+            "latest close unavailable",
+        )
+
+    shares_df = shareholding_df.sort_values("date").copy()
+    if "NumberOfSharesIssued" not in shares_df.columns:
+        return Metric(
+            "Market cap proxy",
+            None,
+            " NT$",
+            shares_df.iloc[-1]["date"] if not shares_df.empty else None,
+            "TaiwanStockPrice + TaiwanStockShareholding",
+            "NumberOfSharesIssued unavailable",
+        )
+
+    latest_shares = shares_df.iloc[-1]
+    shares_outstanding = pd.to_numeric(latest_shares.get("NumberOfSharesIssued"), errors="coerce")
+    if pd.isna(shares_outstanding):
+        return Metric(
+            "Market cap proxy",
+            None,
+            " NT$",
+            latest_shares.get("date"),
+            "TaiwanStockPrice + TaiwanStockShareholding",
+            "issued-share count unavailable",
+        )
+
+    as_of = latest_price.get("date") or latest_shares.get("date")
+    return Metric(
+        "Market cap proxy",
+        float(close) * float(shares_outstanding),
+        " NT$",
+        as_of,
+        "TaiwanStockPrice + TaiwanStockShareholding",
+        "close × NumberOfSharesIssued",
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Institutional flow (3C)
 # ──────────────────────────────────────────────────────────────────────────

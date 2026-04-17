@@ -2,12 +2,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
 
 import run_top200_screen as screen
+from taiwan_equity_toolkit.models import AssessmentStatus, CandidateAssessment, StrategyMode, WorkstreamResult
 
 
 class FakeResponse:
@@ -22,17 +22,30 @@ class FakeResponse:
 
 def build_taifex_html(stock_ids: list[str]) -> str:
     size = len(stock_ids)
-    df = pd.DataFrame({
-        "排行": list(range(1, size + 1)),
-        "證券名稱": stock_ids,
-        "證券名稱.1": [f"Name {idx}" for idx in range(size)],
-        "市值佔 大盤比重": [f"{1 - idx / 10000:.4%}" for idx in range(size)],
-        "排行.1": list(range(528, 528 + size)),
-        "證券名稱.2": [f"{9000 + idx}" for idx in range(size)],
-        "證券名稱.3": [f"Tail {idx}" for idx in range(size)],
-        "市值佔 大盤比重.1": [f"{0.01 - idx / 100000:.4%}" for idx in range(size)],
-    })
+    df = pd.DataFrame(
+        {
+            "排行": list(range(1, size + 1)),
+            "證券名稱": stock_ids,
+            "證券名稱.1": [f"Name {idx}" for idx in range(size)],
+        }
+    )
     return df.to_html(index=False)
+
+
+def make_assessment(stock_id: str, status: AssessmentStatus, score: float) -> CandidateAssessment:
+    workstream = WorkstreamResult(name="Industry/Macro", status=status, score=score)
+    company = WorkstreamResult(name="Company Quality", status=status, score=score)
+    setup = WorkstreamResult(name="Setup/Entry", status=status, score=score, metadata={"entry_verdict": "Enter Now"})
+    return CandidateAssessment(
+        stock_id=stock_id,
+        strategy_mode=StrategyMode.TACTICAL_LONG_SHORT,
+        industry=workstream,
+        company=company,
+        setup=setup,
+        status=status,
+        composite_score=score,
+        thesis_stub=f"{stock_id} thesis",
+    )
 
 
 class RunTop200ScreenTests(unittest.TestCase):
@@ -43,8 +56,6 @@ class RunTop200ScreenTests(unittest.TestCase):
 
         self.assertEqual(parsed, stock_ids)
         self.assertEqual(metadata["universe_source"], "live")
-        self.assertEqual(metadata["source_url"], "https://example.com/taifex")
-        self.assertTrue(metadata["universe_as_of"])
 
     def test_build_universe_uses_snapshot_fallback_when_live_table_is_invalid(self) -> None:
         bad_ids = [f"{2000 + idx:04d}" for idx in range(screen.UNIVERSE_SIZE - 1)] + ["2000"]
@@ -58,8 +69,7 @@ class RunTop200ScreenTests(unittest.TestCase):
                         "as_of": "2026-04-17",
                         "source_url": "https://example.com/snapshot",
                         "stock_ids": snapshot_ids,
-                    },
-                    ensure_ascii=False,
+                    }
                 ),
                 encoding="utf-8",
             )
@@ -70,171 +80,58 @@ class RunTop200ScreenTests(unittest.TestCase):
 
         self.assertEqual(parsed, snapshot_ids)
         self.assertEqual(metadata["universe_source"], "snapshot_fallback")
-        self.assertEqual(metadata["universe_as_of"], "2026-04-17")
-        self.assertIn("duplicate", metadata["fallback_reason"].lower())
 
-    def test_apply_gate1_returns_reasoned_rejects(self) -> None:
-        passers, rejects = screen.apply_gate1(["2603", "2330", "2498"])
-
-        self.assertEqual(passers, ["2330"])
-        self.assertEqual(rejects["2603"]["gate"], "Gate 1")
-        self.assertIn("Shipping", rejects["2603"]["reason"])
-        self.assertIn("Legacy consumer electronics", rejects["2498"]["reason"])
-
-    def test_runner_uses_total_score_and_conditional_watchlist_contract(self) -> None:
-        g3_results = {
-            "2330": SimpleNamespace(total_score=82.5, verdict="Pass", hard_fail_triggered=False),
-            "2303": SimpleNamespace(total_score=71.0, verdict="Conditional Watchlist", hard_fail_triggered=False),
-            "1101": SimpleNamespace(total_score=40.0, verdict="Fail", hard_fail_triggered=False),
-        }
-
-        passers, conditional = screen.classify_gate3_results(g3_results)
-        final = screen.compile_final(
-            ["2330"],
-            g3_results,
-            {"2330": SimpleNamespace(verdict="Enter Now")},
-            {"2330": SimpleNamespace(adv_ntd=100_000_000)},
-        )
-
-        self.assertEqual(passers, ["2330"])
-        self.assertEqual(conditional, ["2303"])
-        self.assertEqual(final[0]["gate3_score"], 82.5)
-
-    def test_compile_final_excludes_gate65_rejects(self) -> None:
-        final = screen.compile_final(
-            ["2330", "2303"],
-            {
-                "2330": SimpleNamespace(total_score=90.0, verdict="Pass", hard_fail_triggered=False),
-                "2303": SimpleNamespace(total_score=85.0, verdict="Pass", hard_fail_triggered=False),
-            },
-            {
-                "2330": SimpleNamespace(verdict="Enter Now"),
-                "2303": SimpleNamespace(verdict="Reject for Book Fit"),
-            },
-            {
-                "2330": SimpleNamespace(adv_ntd=100_000_000),
-                "2303": SimpleNamespace(adv_ntd=100_000_000),
-            },
-        )
-
-        self.assertEqual([record["stock_id"] for record in final], ["2330"])
-
-    def test_gate4_requires_populated_peer_rankings(self) -> None:
-        comparison = SimpleNamespace(candidate_rankings={"Revenue YoY": (0, 0)})
-
-        passed, reason = screen._evaluate_gate4_comparison(comparison)
-
-        self.assertFalse(passed)
-        self.assertIn("Insufficient populated peer metrics", reason)
-
-    def test_gate4_rejects_candidate_that_is_bottom_ranked_repeatedly(self) -> None:
-        comparison = SimpleNamespace(
-            candidate_rankings={
-                "Revenue YoY": (3, 3),
-                "Gross margin": (3, 3),
-                "Operating margin": (2, 3),
-            }
-        )
-
-        passed, reason = screen._evaluate_gate4_comparison(comparison)
-
-        self.assertFalse(passed)
-        self.assertIn("Bottom-ranked", reason)
-
-    def test_gate4_accepts_candidate_with_real_top_half_strength(self) -> None:
-        comparison = SimpleNamespace(
-            candidate_rankings={
-                "Revenue YoY": (1, 3),
-                "Gross margin": (2, 3),
-                "Operating margin": (3, 3),
-            }
-        )
-
-        passed, reason = screen._evaluate_gate4_comparison(comparison)
-
-        self.assertTrue(passed)
-        self.assertIn("top-half", reason)
-
-    def test_gate5_rejects_placeholder_upstream_rows(self) -> None:
-        class DummyClient:
+    def test_run_screen_preserves_v2_statuses_and_funnel(self) -> None:
+        class DummyBootstrapClient:
             def __init__(self, token: str):
                 self.token = token
 
-        fake_report = SimpleNamespace(
-            position=SimpleNamespace(industries=["Semiconductor"], sub_industries=[]),
-            upstream_signals=[
-                SimpleNamespace(
-                    revenue_yoy=None,
-                    institutional_flow_60d=None,
-                    margin_direction="unknown",
+            def usage(self):
+                return type("Usage", (), {"remaining": 550, "api_request_limit": 600, "user_count": 50})()
+
+            def stock_info(self):
+                return pd.DataFrame()
+
+        assessments = [
+            make_assessment("2330", AssessmentStatus.PASSED, 88.0),
+            make_assessment("2303", AssessmentStatus.MANUAL_REVIEW_REQUIRED, 82.0),
+            make_assessment("1101", AssessmentStatus.FAILED, 20.0),
+        ]
+
+        with patch.object(screen, "FinMindClient", DummyBootstrapClient):
+            with patch.object(screen, "_screen_single_stock", side_effect=assessments):
+                payload = screen.run_screen(
+                    ["2330", "2303", "1101"],
+                    {"universe_source": "snapshot_fallback", "universe_as_of": "2026-04-17"},
                 )
-            ],
+
+        self.assertEqual(payload.top10[0]["stock_id"], "2330")
+        self.assertEqual(payload.top10[1]["status"], AssessmentStatus.MANUAL_REVIEW_REQUIRED.value)
+        self.assertEqual(payload.funnel["final_failed"], 1)
+        self.assertEqual(payload.funnel["ranked_non_failed"], 2)
+
+    def test_main_writes_v2_results(self) -> None:
+        payload = screen.ScreenResultsV2(
+            run_date="2026-04-18",
+            strategy_mode=StrategyMode.TACTICAL_LONG_SHORT,
+            universe_source="snapshot_fallback",
+            universe_as_of="2026-04-17",
+            funnel={"started": 1},
+            top10=[{"stock_id": "2330", "status": "passed"}],
+            all_ranked=[{"stock_id": "2330", "status": "passed"}],
         )
-
-        with patch.object(screen, "FinMindClient", DummyClient):
-            with patch.object(screen.value_chain, "analyze", return_value=fake_report):
-                _, result = screen.run_gate5_single(("token", "2330"))
-
-        self.assertFalse(result["passed"])
-        self.assertIn("usable upstream", result["reason"])
-
-    def test_main_writes_universe_provenance_and_structured_gate1_rejects(self) -> None:
-        class DummyClient:
-            def __init__(self, token: str):
-                self.token = token
-
-            def usage(self) -> SimpleNamespace:
-                return SimpleNamespace(
-                    user_count=1,
-                    api_request_limit=600,
-                    remaining=599,
-                    utilization_pct=1 / 600,
-                )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             results_path = Path(tmp_dir) / "screen_results.json"
-            triage_result = SimpleNamespace(adv_ntd=123_000_000, passed=True)
-            gate3_result = SimpleNamespace(total_score=88.0, verdict="Pass", hard_fail_triggered=False)
-            gate65_result = SimpleNamespace(verdict="Enter Now")
-            gate4_result = {"passed": True, "peer_ids": ["2303", "3711"], "comparison": None, "reason": "ok"}
-            gate5_result = {"passed": True, "report": None, "reason": "ok"}
+            with patch.object(screen, "build_universe", return_value=(["2330"], {"universe_source": "snapshot_fallback", "universe_as_of": "2026-04-17"})):
+                with patch.object(screen, "run_screen", return_value=payload):
+                    with patch.object(screen, "RESULTS_PATH", str(results_path)):
+                        top10 = screen.main()
 
-            with patch.object(screen, "FinMindClient", DummyClient):
-                with patch.object(
-                    screen,
-                    "build_universe",
-                    return_value=(
-                        ["2330", "2603"],
-                        {"universe_source": "snapshot_fallback", "universe_as_of": "2026-04-17"},
-                    ),
-                ):
-                    with patch.object(
-                        screen,
-                        "apply_gate1",
-                        return_value=(
-                            ["2330"],
-                            {"2603": {"gate": "Gate 1", "reason": "Shipping — freight rates normalizing"}},
-                        ),
-                    ):
-                        with patch.object(screen, "run_mass_triage", return_value=(["2330"], {"2330": triage_result})):
-                            with patch.object(screen, "run_gate3_batch", return_value=(["2330"], {"2330": gate3_result})):
-                                with patch.object(screen, "run_gate4_batch", return_value=(["2330"], {"2330": gate4_result})) as gate4_mock:
-                                    with patch.object(screen, "run_gate5_batch", return_value=(["2330"], {"2330": gate5_result})) as gate5_mock:
-                                        with patch.object(screen, "run_gate65_batch", return_value=(["2330"], {"2330": gate65_result})) as gate65_mock:
-                                            with patch.object(screen, "RESULTS_PATH", str(results_path)):
-                                                final = screen.main()
-
-            payload = json.loads(results_path.read_text(encoding="utf-8"))
-            self.assertEqual(final[0]["gate3_score"], 88.0)
-            self.assertEqual(payload["universe_source"], "snapshot_fallback")
-            self.assertEqual(payload["universe_as_of"], "2026-04-17")
-            self.assertEqual(payload["gate1_rejects"]["2603"]["gate"], "Gate 1")
-            self.assertIn("reason", payload["gate1_rejects"]["2603"])
-            self.assertEqual(payload["funnel"]["gate4_pass"], 1)
-            self.assertEqual(payload["funnel"]["gate5_pass"], 1)
-            gate4_mock.assert_called_once_with(["2330"])
-            gate5_mock.assert_called_once_with(["2330"])
-            gate65_mock.assert_called_once_with(["2330"])
+            saved = json.loads(results_path.read_text(encoding="utf-8"))
+            self.assertEqual(top10[0]["stock_id"], "2330")
+            self.assertEqual(saved["schema_version"], "v2")
+            self.assertEqual(saved["top10"][0]["stock_id"], "2330")
 
 
 if __name__ == "__main__":

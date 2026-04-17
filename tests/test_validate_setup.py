@@ -17,10 +17,9 @@ class ValidateSetupTests(unittest.TestCase):
             with patch.object(validate_setup, "FinMindClient", DummyClient):
                 with patch.object(validate_setup, "check_quota", return_value=None):
                     with patch.object(validate_setup, "check_datasets", side_effect=add_warning):
-                        with patch.object(validate_setup, "check_parser_ledgers", return_value=None):
-                            with patch.object(validate_setup, "check_triage_and_gate3", return_value=None):
-                                with patch("sys.argv", ["validate_setup.py"]):
-                                    exit_code = validate_setup.main()
+                        with patch.object(validate_setup, "check_triage_and_gate3", return_value=None):
+                            with patch("sys.argv", ["validate_setup.py"]):
+                                exit_code = validate_setup.main()
 
         self.assertEqual(exit_code, 0)
 
@@ -36,10 +35,9 @@ class ValidateSetupTests(unittest.TestCase):
             with patch.object(validate_setup, "FinMindClient", DummyClient):
                 with patch.object(validate_setup, "check_quota", return_value=None):
                     with patch.object(validate_setup, "check_datasets", side_effect=add_fatal):
-                        with patch.object(validate_setup, "check_parser_ledgers", return_value=None):
-                            with patch.object(validate_setup, "check_triage_and_gate3", return_value=None):
-                                with patch("sys.argv", ["validate_setup.py"]):
-                                    exit_code = validate_setup.main()
+                        with patch.object(validate_setup, "check_triage_and_gate3", return_value=None):
+                            with patch("sys.argv", ["validate_setup.py"]):
+                                exit_code = validate_setup.main()
 
         self.assertEqual(exit_code, 1)
 

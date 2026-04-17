@@ -16,16 +16,13 @@ from __future__ import annotations
 import argparse
 import sys
 
-from taiwan_equity_toolkit import (
-    FinMindClient,
-    triage,
-    gate3,
-    gate65,
-    peers,
-    value_chain,
-    memo,
-)
+from taiwan_equity_toolkit import FinMindClient, memo, value_chain
 from taiwan_equity_toolkit.config import INDUSTRY_ANCHORS, load_token
+from taiwan_equity_toolkit.models import StrategyMode
+from taiwan_equity_toolkit.synthesis import SynthesisInputs, synthesize_candidate
+from taiwan_equity_toolkit.workstream_company import run as run_company_workstream
+from taiwan_equity_toolkit.workstream_industry import run as run_industry_workstream
+from taiwan_equity_toolkit.workstream_setup import run as run_setup_workstream
 
 
 def guess_peers(stock_id: str) -> list[str]:
@@ -65,66 +62,43 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"[quota] check skipped: {e}\n")
 
-    # ── Triage ────────────────────────────────────────────
-    print("──── Triage Filter ────")
-    tr = triage.run(client, stock_id=stock_id, intended_position_ntd=intended)
-    print(tr.summary())
+    print("──── Workstream A: Industry / Macro ────")
+    industry = run_industry_workstream(client, stock_id=stock_id)
+    print(industry.to_dict())
     print()
 
-    if not tr.passed:
-        print("⛔ Triage failed — screen stops here.")
-        sys.exit(0)
-
-    # ── Gate 3 ────────────────────────────────────────────
-    print("──── Gate 3: Forensic Quality ────")
-    g3 = gate3.run(client, stock_id=stock_id)
-    print(g3.memo())
+    print("──── Workstream B: Company Quality ────")
+    company = run_company_workstream(client, stock_id=stock_id)
+    print(company.to_dict())
     print()
 
-    if g3.hard_fail_triggered:
-        print("⛔ Gate 3 hard-fail override triggered — screen stops here.")
-        sys.exit(0)
-    if g3.verdict == "Fail":
-        print("⛔ Gate 3 failed on score — screen stops here.")
-        sys.exit(0)
+    print("──── Workstream C: Setup / Entry ────")
+    setup, extras = run_setup_workstream(client, stock_id=stock_id, existing_book=book)
+    print(setup.to_dict())
+    print()
 
-    # ── Gate 4 / Gate 5: Peer + value chain ───────────────
-    peer_cmp = None
-    if peer_list:
-        print("──── Gate 4: Cross-Source (Peer) Validation ────")
-        peer_cmp = peers.compare(client, candidate=stock_id, peers=peer_list)
-        print(peer_cmp.summary())
-        print()
-
-    print("──── Gate 5: Value Chain Positioning ────")
-    chain = value_chain.analyze(client, stock_id=stock_id)
+    print("──── Value Chain Proxy Context ────")
+    chain = value_chain.analyze(client, stock_id=stock_id, override_upstream=peer_list or None)
     print(chain.summary())
     print()
 
-    # ── Gate 6.5 ──────────────────────────────────────────
-    print("──── Gate 6.5: Entry Architecture ────")
-    g65 = gate65.run(
-        client,
+    assessment = synthesize_candidate(
         stock_id=stock_id,
-        existing_book=book,
-        intended_position_ntd=intended,
+        strategy_mode=StrategyMode.TACTICAL_LONG_SHORT,
+        industry=industry,
+        company=company,
+        setup=setup,
+        sizing_band=extras.get("sizing_band"),
+        inputs=SynthesisInputs(),
     )
-    print(g65.summary())
-    print()
 
-    # ── Memo ──────────────────────────────────────────────
     print("══════════════════════════════════════════════════")
-    print("  Composed memo (Gates 1, 2, 6, 7 require judgment;")
-    print("  fill those in based on your view)")
+    print("  Composed memo (manual sections stay explicit in V2)")
     print("══════════════════════════════════════════════════")
     m = memo.FullScreenMemo(
         stock_id=stock_id,
-        triage=tr,
-        gate3=g3,
-        peer_comparison=peer_cmp,
-        value_chain_notes=chain.summary(),
-        entry_architecture_notes=g65.summary(),
-        verdict="(pending — fill in judgment gates)",
+        candidate_assessment=assessment,
+        synthesis_inputs=SynthesisInputs(),
     )
     print(m.render())
 
