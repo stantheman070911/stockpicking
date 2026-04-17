@@ -143,9 +143,13 @@ PREMIUM_DATASETS: FrozenSet[str] = frozenset({
     # Trading-state overlays
     "TaiwanStockDispositionSecuritiesPeriod",
     "TaiwanStockSuspended",
-    # Convertible bond family (all four)
+    # Convertible bond family (all four canonical datasets + legacy aliases)
+    "TaiwanStockConvertibleBondInfo",
     "TaiwanStockConvertibleBondDaily",
     "TaiwanStockConvertibleBondDailyOverview",
+    "TaiwanStockConvertibleBondInstitutionalInvestors",
+    # Legacy aliases kept for defensive compatibility while the codebase is
+    # migrated off old dataset names.
     "TaiwanStockConvertibleBondDetail",
     "TaiwanStockConvertibleBondInstitutionalInvestorsBuySell",
     # Broker-branch / government flow
@@ -156,6 +160,7 @@ PREMIUM_DATASETS: FrozenSet[str] = frozenset({
     "TaiwanStockMarketValue",
     "TaiwanStockMarketValueWeek",
     "TaiwanStockMarketValueMonth",
+    "TaiwanStockMarketValueWeight",
     "TaiwanStockHoldingSharesPer",
     # Tick / intraday / alt-frequency price series
     "TaiwanStockKBar",
