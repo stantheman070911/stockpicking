@@ -130,6 +130,13 @@ class FinMindClient:
                 )
                 if resp.status_code == 402:
                     raise RateLimitExceeded(f"FinMind quota exceeded: {resp.text}")
+                if resp.status_code == 400:
+                    # 400 = dataset requires higher membership tier (Backer/Sponsor).
+                    # Not a transient error — do not retry.
+                    raise FinMindError(
+                        f"FinMind tier limit: dataset '{dataset}' requires Backer/Sponsor "
+                        f"tier (HTTP 400). Skipping."
+                    )
                 resp.raise_for_status()
                 payload = resp.json()
                 if payload.get("status") != 200:
@@ -138,6 +145,8 @@ class FinMindClient:
                 return pd.DataFrame(rows)
             except RateLimitExceeded:
                 raise  # don't retry on quota exhaustion
+            except FinMindError:
+                raise  # don't retry on known API errors (tier, bad dataset)
             except Exception as e:  # noqa: BLE001
                 last_err = e
                 log.warning("FinMind fetch failed (attempt %d/%d): %s", attempt + 1, MAX_RETRIES, e)

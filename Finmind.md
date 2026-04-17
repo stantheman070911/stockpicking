@@ -12,7 +12,9 @@ Register at finmindtrade.com, get token via login API or website. Pass token as 
 
 here is the api token you can use 
 
-eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoic3RhbnRoZW1hbjkxMSIsImVtYWlsIjoibGV0c3RhbmxleWNvb2s5MTFAZ21haWwuY29tIn0.iVbgBEQp5UzBSwGHPaSRXCqrhPTImxA_0QD6goxrnUI
+TOKEN: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoic3RhbnRoZW1hbjkxMSIsImVtYWlsIjoibGV0c3RhbmxleWNvb2s5MTFAZ21haWwuY29tIn0.iVbgBEQp5UzBSwGHPaSRXCqrhPTImxA_0QD6goxrnUI
+
+backup token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoic3RhbmludmVzdCIsImVtYWlsIjoibGFteWx1MDgxMUBnbWFpbC5jb20ifQ.gktNshv39_O-CRQC1OiigXJt-BEdFPSd3gt3N0-Vbt0
 
 Rate limit: 600 requests/hour (with token), 300/hour (without token).
 

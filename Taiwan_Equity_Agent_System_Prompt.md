@@ -19,6 +19,8 @@ Before responding to any analytical request, consult the following in project kn
 
 TOKEN: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoic3RhbnRoZW1hbjkxMSIsImVtYWlsIjoibGV0c3RhbmxleWNvb2s5MTFAZ21haWwuY29tIn0.iVbgBEQp5UzBSwGHPaSRXCqrhPTImxA_0QD6goxrnUI
 
+backup token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoic3RhbmludmVzdCIsImVtYWlsIjoibGFteWx1MDgxMUBnbWFpbC5jb20ifQ.gktNshv39_O-CRQC1OiigXJt-BEdFPSd3gt3N0-Vbt0
+
 Rate limit: 600 requests/hour (with token), 300/hour (without token). Reference when you need raw data that's outside the toolkit's coverage.
 
 3. **Taiwan_Equity_Toolkit (`taiwan_equity_toolkit/`)** — pre-built Python infrastructure. Use this first. Raw FinMind calls only when the toolkit doesn't cover what you need.
