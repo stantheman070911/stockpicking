@@ -45,6 +45,32 @@ class MetricsMissingDataTests(unittest.TestCase):
         self.assertIsNone(metric.value)
         self.assertIn("missing quarter", metric.note)
 
+    def test_cfo_to_ni_returns_none_when_only_three_quarters_exist(self) -> None:
+        income = [
+            parsers.IncomeStatement(date="2024-03-31", stock_id="2330", net_income=100.0),
+            parsers.IncomeStatement(date="2024-06-30", stock_id="2330", net_income=100.0),
+            parsers.IncomeStatement(date="2024-09-30", stock_id="2330", net_income=100.0),
+        ]
+        cash = [
+            parsers.CashFlow(date="2024-03-31", stock_id="2330", cfo=100.0),
+            parsers.CashFlow(date="2024-06-30", stock_id="2330", cfo=100.0),
+            parsers.CashFlow(date="2024-09-30", stock_id="2330", cfo=100.0),
+        ]
+
+        metric = metrics.cfo_to_ni_ratio(income, cash, 4)
+
+        self.assertIsNone(metric.value)
+        self.assertIn("insufficient data", metric.note)
+
+    def test_ttm_requires_a_full_window(self) -> None:
+        records = [
+            parsers.IncomeStatement(date="2024-03-31", stock_id="2330"),
+            parsers.IncomeStatement(date="2024-06-30", stock_id="2330"),
+            parsers.IncomeStatement(date="2024-09-30", stock_id="2330"),
+        ]
+
+        self.assertEqual(parsers.ttm(records, 4), [])
+
 
 if __name__ == "__main__":
     unittest.main()

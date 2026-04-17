@@ -61,6 +61,14 @@ class ValueChainReport:
         return "\n".join(lines)
 
 
+def has_usable_signal(signal: UpstreamSignal) -> bool:
+    return (
+        signal.revenue_yoy is not None
+        or signal.institutional_flow_60d is not None
+        or signal.margin_direction != "unknown"
+    )
+
+
 def locate(client: FinMindClient, stock_id: str) -> ChainPosition:
     """Identify the industry-chain position of a stock and its chain-peers."""
     chain_df = client.industry_chain()
@@ -161,6 +169,9 @@ def analyze(
                 any_data = True
         signal.institutional_flow_60d = net if any_data else None
 
-        report.upstream_signals.append(signal)
+        if has_usable_signal(signal):
+            report.upstream_signals.append(signal)
+        else:
+            report.notes.append(f"{sid}: no usable upstream signal data")
 
     return report

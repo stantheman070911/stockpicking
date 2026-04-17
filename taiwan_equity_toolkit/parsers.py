@@ -275,4 +275,7 @@ def ttm(records: list, n: int = 4) -> list:
     """Return the most recent n quarters (trailing-twelve-months basis)."""
     if not records:
         return []
-    return sorted(records, key=lambda r: r.date)[-n:]
+    ordered = sorted(records, key=lambda r: r.date)
+    if len(ordered) < n:
+        return []
+    return ordered[-n:]

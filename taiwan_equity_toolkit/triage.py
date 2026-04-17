@@ -46,6 +46,12 @@ class TriageResult:
         return "\n".join(lines)
 
 
+def _fail_closed(result: TriageResult, name: str, detail: str, source: str) -> None:
+    result.notes.append(detail)
+    result.checks.append(TriageCheck(name, False, detail, source))
+    result.passed = False
+
+
 def run(
     client: FinMindClient,
     stock_id: str,
@@ -104,7 +110,12 @@ def run(
                 "TaiwanStockDispositionSecuritiesPeriod"
             ))
     except Exception as e:  # noqa: BLE001
-        result.notes.append(f"Disposition check unavailable: {e}")
+        _fail_closed(
+            result,
+            "Disposition status",
+            f"Disposition check unavailable: {e}",
+            "TaiwanStockDispositionSecuritiesPeriod",
+        )
 
     try:
         susp = client.get("TaiwanStockSuspended", stock_id,
@@ -131,7 +142,12 @@ def run(
         else:
             result.checks.append(TriageCheck("Trading suspension", True, "No suspension record", "TaiwanStockSuspended"))
     except Exception as e:  # noqa: BLE001
-        result.notes.append(f"Suspension check unavailable: {e}")
+        _fail_closed(
+            result,
+            "Trading suspension",
+            f"Suspension check unavailable: {e}",
+            "TaiwanStockSuspended",
+        )
 
     # ──────────────────────────────────────────────
     # 2. Liquidity floor
@@ -209,7 +225,12 @@ def run(
                     "TaiwanStockFinancialStatements"
                 ))
     except Exception as e:  # noqa: BLE001
-        result.notes.append(f"Financial-statement check unavailable: {e}")
+        _fail_closed(
+            result,
+            "Financials freshness",
+            f"Financial-statement check unavailable: {e}",
+            "TaiwanStockFinancialStatements",
+        )
 
     # ──────────────────────────────────────────────
     # 4. Monthly revenue collapse
@@ -222,7 +243,7 @@ def run(
                 "Monthly revenue trend", False, "Could not compute YoY",
                 "TaiwanStockMonthRevenue"
             ))
-            # Don't fail — just flag
+            result.passed = False
         elif yoy.value < cfg.monthly_revenue_collapse_yoy * 100 and not short_thesis:
             result.checks.append(TriageCheck(
                 "Monthly revenue trend", False,
@@ -237,7 +258,12 @@ def run(
                 "TaiwanStockMonthRevenue"
             ))
     except Exception as e:  # noqa: BLE001
-        result.notes.append(f"Monthly revenue check unavailable: {e}")
+        _fail_closed(
+            result,
+            "Monthly revenue trend",
+            f"Monthly revenue check unavailable: {e}",
+            "TaiwanStockMonthRevenue",
+        )
 
     # ──────────────────────────────────────────────
     # 5. Recent corporate-action distortion flag
@@ -264,6 +290,11 @@ def run(
                 "TaiwanStockCapitalReductionReferencePrice"
             ))
     except Exception as e:  # noqa: BLE001
-        result.notes.append(f"Corporate-action check unavailable: {e}")
+        _fail_closed(
+            result,
+            "Corporate-action distortion",
+            f"Corporate-action check unavailable: {e}",
+            "TaiwanStockCapitalReductionReferencePrice",
+        )
 
     return result

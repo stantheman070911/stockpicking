@@ -119,6 +119,65 @@ class RunTop200ScreenTests(unittest.TestCase):
 
         self.assertEqual([record["stock_id"] for record in final], ["2330"])
 
+    def test_gate4_requires_populated_peer_rankings(self) -> None:
+        comparison = SimpleNamespace(candidate_rankings={"Revenue YoY": (0, 0)})
+
+        passed, reason = screen._evaluate_gate4_comparison(comparison)
+
+        self.assertFalse(passed)
+        self.assertIn("Insufficient populated peer metrics", reason)
+
+    def test_gate4_rejects_candidate_that_is_bottom_ranked_repeatedly(self) -> None:
+        comparison = SimpleNamespace(
+            candidate_rankings={
+                "Revenue YoY": (3, 3),
+                "Gross margin": (3, 3),
+                "Operating margin": (2, 3),
+            }
+        )
+
+        passed, reason = screen._evaluate_gate4_comparison(comparison)
+
+        self.assertFalse(passed)
+        self.assertIn("Bottom-ranked", reason)
+
+    def test_gate4_accepts_candidate_with_real_top_half_strength(self) -> None:
+        comparison = SimpleNamespace(
+            candidate_rankings={
+                "Revenue YoY": (1, 3),
+                "Gross margin": (2, 3),
+                "Operating margin": (3, 3),
+            }
+        )
+
+        passed, reason = screen._evaluate_gate4_comparison(comparison)
+
+        self.assertTrue(passed)
+        self.assertIn("top-half", reason)
+
+    def test_gate5_rejects_placeholder_upstream_rows(self) -> None:
+        class DummyClient:
+            def __init__(self, token: str):
+                self.token = token
+
+        fake_report = SimpleNamespace(
+            position=SimpleNamespace(industries=["Semiconductor"], sub_industries=[]),
+            upstream_signals=[
+                SimpleNamespace(
+                    revenue_yoy=None,
+                    institutional_flow_60d=None,
+                    margin_direction="unknown",
+                )
+            ],
+        )
+
+        with patch.object(screen, "FinMindClient", DummyClient):
+            with patch.object(screen.value_chain, "analyze", return_value=fake_report):
+                _, result = screen.run_gate5_single(("token", "2330"))
+
+        self.assertFalse(result["passed"])
+        self.assertIn("usable upstream", result["reason"])
+
     def test_main_writes_universe_provenance_and_structured_gate1_rejects(self) -> None:
         class DummyClient:
             def __init__(self, token: str):

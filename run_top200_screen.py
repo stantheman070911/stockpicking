@@ -256,6 +256,35 @@ def guess_peers(client: FinMindClient, stock_id: str, max_peers: int = 3) -> lis
     return [member for member in chain_position.peers_in_chain if member != stock_id][:max_peers]
 
 
+def _evaluate_gate4_comparison(comparison) -> tuple[bool, str]:
+    rankings = getattr(comparison, "candidate_rankings", {}) or {}
+    populated = {
+        metric: (rank, total)
+        for metric, (rank, total) in rankings.items()
+        if rank and total and total >= 2
+    }
+    if len(populated) < 2:
+        return False, "Insufficient populated peer metrics for Gate 4"
+
+    top_half = [
+        metric
+        for metric, (rank, total) in populated.items()
+        if rank <= ((total + 1) // 2)
+    ]
+    bottom_ranked = [
+        metric
+        for metric, (rank, total) in populated.items()
+        if rank == total
+    ]
+
+    if not top_half:
+        return False, f"No top-half peer rankings across {len(populated)} populated metric(s)"
+    if len(bottom_ranked) >= 2:
+        return False, "Bottom-ranked on multiple peer metrics: " + ", ".join(bottom_ranked)
+
+    return True, "Validated on populated peer metrics; top-half on " + ", ".join(top_half)
+
+
 def apply_gate1(universe: list[str]) -> tuple[list[str], dict[str, dict[str, str]]]:
     """Gate 1 — deterministic directional industry filter with auditable rejects."""
     passers: list[str] = []
@@ -422,11 +451,12 @@ def run_gate4_single(args):
             }
 
         comparison = peers.compare(client, candidate=stock_id, peers=peer_ids)
+        passed, reason = _evaluate_gate4_comparison(comparison)
         return stock_id, {
-            "passed": True,
+            "passed": passed,
             "peer_ids": peer_ids,
             "comparison": comparison,
-            "reason": f"Peer validation completed with {len(peer_ids)} peer(s)",
+            "reason": reason,
         }
     except Exception as e:
         log.warning(f"Gate 4 error {stock_id}: {e}")
@@ -470,12 +500,14 @@ def run_gate5_single(args):
     try:
         report = value_chain.analyze(client, stock_id)
         has_position = bool(report.position.industries or report.position.sub_industries)
-        has_signals = bool(report.upstream_signals)
-        passed = has_position and has_signals
+        usable_signal_count = sum(
+            1 for signal in report.upstream_signals if value_chain.has_usable_signal(signal)
+        )
+        passed = has_position and usable_signal_count > 0
         if passed:
-            reason = f"Value chain mapped with {len(report.upstream_signals)} upstream signal(s)"
+            reason = f"Value chain mapped with {usable_signal_count} usable upstream signal(s)"
         elif has_position:
-            reason = "Value-chain position mapped, but upstream/downstream signals were unavailable"
+            reason = "Value-chain position mapped, but usable upstream/downstream signals were unavailable"
         else:
             reason = "No value-chain context available"
         return stock_id, {
