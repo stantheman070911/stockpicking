@@ -1,0 +1,251 @@
+"""
+FinMind API client — thin wrapper around the REST endpoint with async batch support.
+
+Prefer `get_multi(...)` over looping `get(...)` for peer analysis: it hits the
+API concurrently and returns a dict keyed by stock_id. This is the single most
+important performance lever when comparing a candidate against peers.
+
+Usage:
+    client = FinMindClient(token=load_token())
+    df = client.get('TaiwanStockFinancialStatements', stock_id='2330', start_date='2020-01-01')
+    panel = client.get_multi('TaiwanStockMonthRevenue', stock_ids=['2330', '2303'], start_date='2023-01-01')
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass
+from typing import Any, Optional
+
+import pandas as pd
+import requests
+
+from taiwan_equity_toolkit.config import (
+    FINMIND_BASE_URL,
+    FINMIND_USER_INFO_URL,
+    MAX_RETRIES,
+    RATE_LIMIT_PER_HOUR,
+    RETRY_BACKOFF_SEC,
+    DEFAULT_TIMEOUT_SEC,
+)
+
+log = logging.getLogger(__name__)
+
+
+class FinMindError(Exception):
+    """Raised when the API returns an error or response is unparseable."""
+
+
+class RateLimitExceeded(FinMindError):
+    """API quota exhausted."""
+
+
+@dataclass
+class UsageInfo:
+    user_count: int
+    api_request_limit: int
+
+    @property
+    def remaining(self) -> int:
+        return self.api_request_limit - self.user_count
+
+    @property
+    def utilization_pct(self) -> float:
+        if self.api_request_limit == 0:
+            return 0.0
+        return self.user_count / self.api_request_limit
+
+
+class FinMindClient:
+    """FinMind REST client with retry, rate-limit awareness, and async batching."""
+
+    def __init__(
+        self,
+        token: str,
+        base_url: str = FINMIND_BASE_URL,
+        timeout: int = DEFAULT_TIMEOUT_SEC,
+    ):
+        if not token:
+            raise ValueError("FinMind token is required.")
+        self._token = token
+        self._base_url = base_url
+        self._timeout = timeout
+        self._headers = {"Authorization": f"Bearer {token}"}
+
+    # ──────────────────────────────────────────────────────────────────
+    # Quota
+    # ──────────────────────────────────────────────────────────────────
+
+    def usage(self) -> UsageInfo:
+        """Check current API quota usage."""
+        resp = requests.get(FINMIND_USER_INFO_URL, headers=self._headers, timeout=self._timeout)
+        resp.raise_for_status()
+        j = resp.json()
+        return UsageInfo(user_count=int(j["user_count"]), api_request_limit=int(j["api_request_limit"]))
+
+    # ──────────────────────────────────────────────────────────────────
+    # Synchronous single-dataset fetch
+    # ──────────────────────────────────────────────────────────────────
+
+    def get(
+        self,
+        dataset: str,
+        stock_id: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """
+        Fetch a dataset from FinMind.
+
+        Returns an empty DataFrame if the API returns no data. Raises FinMindError
+        on non-recoverable failures after retries.
+
+        Args:
+            dataset: FinMind dataset name (e.g., 'TaiwanStockFinancialStatements')
+            stock_id: Data ID (stock code for most TW datasets)
+            start_date: YYYY-MM-DD
+            end_date: YYYY-MM-DD
+
+        Returns:
+            DataFrame with the raw response rows.
+        """
+        params: dict[str, Any] = {"dataset": dataset}
+        if stock_id:
+            params["data_id"] = stock_id
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+
+        last_err: Optional[Exception] = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = requests.get(
+                    f"{self._base_url}/data",
+                    params=params,
+                    headers=self._headers,
+                    timeout=self._timeout,
+                )
+                if resp.status_code == 402:
+                    raise RateLimitExceeded(f"FinMind quota exceeded: {resp.text}")
+                resp.raise_for_status()
+                payload = resp.json()
+                if payload.get("status") != 200:
+                    raise FinMindError(f"FinMind error: {payload}")
+                rows = payload.get("data", [])
+                return pd.DataFrame(rows)
+            except RateLimitExceeded:
+                raise  # don't retry on quota exhaustion
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                log.warning("FinMind fetch failed (attempt %d/%d): %s", attempt + 1, MAX_RETRIES, e)
+                time.sleep(RETRY_BACKOFF_SEC * (attempt + 1))
+        raise FinMindError(f"FinMind fetch failed after {MAX_RETRIES} retries: {last_err}")
+
+    # ──────────────────────────────────────────────────────────────────
+    # Async batch fetch — the edge over retail workflows
+    # ──────────────────────────────────────────────────────────────────
+
+    async def _fetch_async(
+        self,
+        dataset: str,
+        stock_id: str,
+        start_date: Optional[str],
+        end_date: Optional[str],
+    ) -> tuple[str, pd.DataFrame]:
+        """Wrapper that runs sync fetch in a thread."""
+        loop = asyncio.get_event_loop()
+        df = await loop.run_in_executor(
+            None, lambda: self.get(dataset, stock_id, start_date, end_date)
+        )
+        return stock_id, df
+
+    async def _get_multi_async(
+        self,
+        dataset: str,
+        stock_ids: list[str],
+        start_date: Optional[str],
+        end_date: Optional[str],
+    ) -> dict[str, pd.DataFrame]:
+        tasks = [
+            self._fetch_async(dataset, sid, start_date, end_date) for sid in stock_ids
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        out: dict[str, pd.DataFrame] = {}
+        for res in results:
+            if isinstance(res, Exception):
+                log.warning("Peer fetch failed: %s", res)
+                continue
+            stock_id, df = res
+            out[stock_id] = df
+        return out
+
+    def get_multi(
+        self,
+        dataset: str,
+        stock_ids: list[str],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> dict[str, pd.DataFrame]:
+        """
+        Async batch fetch across multiple stocks.
+
+        Returns {stock_id: DataFrame}. Failed fetches are logged and omitted.
+        Not supported by: info, snapshot, tick, total-aggregation, CB datasets
+        (those take no data_id or have special semantics — call get() instead).
+        """
+        return asyncio.run(self._get_multi_async(dataset, stock_ids, start_date, end_date))
+
+    # ──────────────────────────────────────────────────────────────────
+    # Convenience shortcuts for the most common datasets
+    # ──────────────────────────────────────────────────────────────────
+
+    def price(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockPrice", stock_id, start_date, end_date)
+
+    def price_adj(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockPriceAdj", stock_id, start_date, end_date)
+
+    def financial_statements(self, stock_id: str, start_date: str) -> pd.DataFrame:
+        return self.get("TaiwanStockFinancialStatements", stock_id, start_date)
+
+    def balance_sheet(self, stock_id: str, start_date: str) -> pd.DataFrame:
+        return self.get("TaiwanStockBalanceSheet", stock_id, start_date)
+
+    def cash_flow(self, stock_id: str, start_date: str) -> pd.DataFrame:
+        return self.get("TaiwanStockCashFlowsStatement", stock_id, start_date)
+
+    def monthly_revenue(self, stock_id: str, start_date: str) -> pd.DataFrame:
+        return self.get("TaiwanStockMonthRevenue", stock_id, start_date)
+
+    def per(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockPER", stock_id, start_date, end_date)
+
+    def market_value(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockMarketValue", stock_id, start_date, end_date)
+
+    def institutional_flow(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockInstitutionalInvestorsBuySell", stock_id, start_date, end_date)
+
+    def foreign_ownership(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockShareholding", stock_id, start_date, end_date)
+
+    def margin_short(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockMarginPurchaseShortSale", stock_id, start_date, end_date)
+
+    def securities_lending(self, stock_id: str, start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+        return self.get("TaiwanStockSecuritiesLending", stock_id, start_date, end_date)
+
+    def news(self, stock_id: str, start_date: str) -> pd.DataFrame:
+        return self.get("TaiwanStockNews", stock_id, start_date)
+
+    def dividend(self, stock_id: str, start_date: str) -> pd.DataFrame:
+        return self.get("TaiwanStockDividend", stock_id, start_date)
+
+    def industry_chain(self) -> pd.DataFrame:
+        return self.get("TaiwanStockIndustryChain")
+
+    def stock_info(self) -> pd.DataFrame:
+        return self.get("TaiwanStockInfo")
