@@ -450,15 +450,10 @@ def build_universe() -> list[str]:
 
 
 def apply_gate1(universe: list[str]) -> tuple[list[str], dict]:
-    """Gate 1 — directional industry filter. Returns (passers, rejects)."""
-    passers = []
+    """Gate 1 — directional industry filter. Disabled per user request."""
+    passers = list(universe)
     rejects = {}
-    for sid in universe:
-        if sid in G1_EXCLUDE_IDS:
-            rejects[sid] = f"Gate 1 FAIL — structural headwind or excluded industry"
-        else:
-            passers.append(sid)
-    log.info(f"Gate 1: {len(passers)} pass, {len(rejects)} excluded")
+    log.info(f"Gate 1: {len(passers)} pass, 0 excluded (industry filter disabled)")
     return passers, rejects
 
 
