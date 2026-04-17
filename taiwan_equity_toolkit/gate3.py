@@ -42,7 +42,7 @@ class HardFailFinding:
 class Gate3Result:
     stock_id: str
     total_score: float
-    verdict: str                # "Pass" | "Conditional" | "Fail"
+    verdict: str                # "Pass" | "Conditional Watchlist" | "Fail"
     sub_layers: list[SubLayerScore] = field(default_factory=list)
     hard_fails: list[HardFailFinding] = field(default_factory=list)
     hard_fail_triggered: bool = False
@@ -507,6 +507,61 @@ def _score_3e_data_integrity(
 # Hard-fail overrides
 # ──────────────────────────────────────────────────────────────────────────
 
+def _check_persistent_cfo_ni_divergence(
+    income: list[parsers.IncomeStatement],
+    cash: list[parsers.CashFlow],
+    th: Gate3Thresholds,
+) -> tuple[bool, str]:
+    """Return whether CFO/NI weakness persists for the configured consecutive-quarter window."""
+    income_by_date = {record.date: record for record in income}
+    cash_by_date = {record.date: record for record in cash}
+    dates = sorted(set(income_by_date) | set(cash_by_date))
+
+    streak = 0
+    max_streak = 0
+    computable_quarters = 0
+    detail_parts: list[str] = []
+
+    for date in dates:
+        inc = income_by_date.get(date)
+        cf = cash_by_date.get(date)
+
+        ratio: Optional[float] = None
+        if inc is not None and cf is not None and inc.net_income not in (None, 0) and cf.cfo is not None:
+            ratio = cf.cfo / inc.net_income
+            computable_quarters += 1
+            if ratio < th.cfo_to_ni_warning:
+                streak += 1
+                max_streak = max(max_streak, streak)
+            else:
+                streak = 0
+        else:
+            streak = 0
+
+        rendered = "n/a" if ratio is None else f"{ratio:.2f}x"
+        detail_parts.append(f"{date}: {rendered}")
+
+    recent_detail = "; ".join(detail_parts[-max(th.cfo_to_ni_warning_qtrs + 2, 4):])
+    if computable_quarters < th.cfo_to_ni_warning_qtrs:
+        return (
+            False,
+            "unverifiable: only "
+            f"{computable_quarters} computable quarter(s) for CFO/NI persistence test "
+            f"(need {th.cfo_to_ni_warning_qtrs}); recent series: {recent_detail}",
+        )
+
+    if max_streak >= th.cfo_to_ni_warning_qtrs:
+        return (
+            True,
+            f"{max_streak} consecutive quarters below {th.cfo_to_ni_warning:.2f}x; recent series: {recent_detail}",
+        )
+
+    return (
+        False,
+        f"max weak streak {max_streak}/{th.cfo_to_ni_warning_qtrs}; recent series: {recent_detail}",
+    )
+
+
 def _check_hard_fails(
     income: list[parsers.IncomeStatement],
     cash: list[parsers.CashFlow],
@@ -532,11 +587,7 @@ def _check_hard_fails(
     findings.append(HardFailFinding("Refinancing wall + weak coverage", triggered_1, detail_1))
 
     # 2. Persistent CFO/NI divergence
-    cfo_ni_4q = metrics.cfo_to_ni_ratio(income, cash, n_qtrs=4)
-    triggered_2 = cfo_ni_4q.value is not None and cfo_ni_4q.value < th.cfo_to_ni_warning
-    detail_2 = cfo_ni_4q.cite()
-    if triggered_2:
-        detail_2 += f" — below {th.cfo_to_ni_warning} threshold for 4+Q"
+    triggered_2, detail_2 = _check_persistent_cfo_ni_divergence(income, cash, th)
     findings.append(HardFailFinding("Persistent CFO/NI divergence", triggered_2, detail_2))
 
     # 3. Governance red flags (pulled from 3E score)

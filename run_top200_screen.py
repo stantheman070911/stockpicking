@@ -18,8 +18,11 @@ import time
 import logging
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import StringIO
+from typing import Optional
 
 import pandas as pd
+import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 from taiwan_equity_toolkit.client import FinMindClient
@@ -61,326 +64,117 @@ TRIAGE_WORKERS = 8
 GATE3_WORKERS  = 4
 TODAY = datetime.today()
 RESULTS_PATH = os.path.join(os.path.dirname(__file__), "screen_results.json")
+TAIFEX_TAIEX_URL = "https://www.taifex.com.tw/cht/9/futuresQADetail"
+UNIVERSE_SIZE = 200
+SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "data", "taiex_top200_snapshot.json")
 
-# ── TAIEX Top ~200 by Market Cap (Apr 2026 knowledge, approximate rank order) ─
-# Source: TAIFEX constituent data + market cap as of Q1 2026.
-# ETFs, preferred shares, warrants excluded.
-TAIEX_TOP200 = [
-    # Mega caps
-    "2330",  # TSMC
-    "2317",  # Hon Hai (Foxconn)
-    "2454",  # MediaTek
-    "2382",  # Quanta Computer
-    "2308",  # Delta Electronics
-    "3711",  # ASE Technology
-    "2303",  # UMC
-    "2881",  # Fubon Financial
-    "2882",  # Cathay Financial
-    "2412",  # Chunghwa Telecom
-    "2884",  # E.Sun Financial
-    "2886",  # Mega Financial
-    "2891",  # CTBC Financial
-    "2892",  # First Financial
-    "5876",  # Shanghai Commercial
-    "2883",  # GlobalBanks-Dahshin (Dasin)
-    "2887",  # TaishinFinancial
-    "2885",  # Yuanta Financial
-    "1301",  # Formosa Plastics
-    "1303",  # Nan Ya Plastics
-    "1326",  # Formosa Chemicals
-    "6505",  # Formosa Petrochemical
-    "2002",  # China Steel
-    "1216",  # Uni-President
-    "2912",  # President Chain Store
-    "2207",  # Hotai Motor
-    "2395",  # Advantech
-    "2379",  # Realtek
-    "3034",  # Novatek
-    "2357",  # ASUS
-    "2352",  # Qisda / BenQ
-    "4904",  # Far EasTone
-    "3045",  # Taiwan Mobile
-    "2367",  # Acer
-    "2324",  # Compal
-    "3231",  # Wistron
-    "2301",  # Lite-On Technology
-    "2409",  # AUO
-    "3481",  # Innolux (Chi Mei)
-    "2376",  # GigaByte Technology
-    "2347",  # Synnex
-    "2337",  # Macronix
-    "4938",  # Pegatron
-    "6770",  # Globalwafers — wait, GlobalWafers is 6488, PSMC is 6770; let me fix
-    "6488",  # GlobalWafers
-    "2408",  # Winbond
-    "3008",  # Largan Precision
-    "2474",  # Catcher Technology
-    "4906",  # Fomosa (Farglory)
-    "2323",  # CMOS (CMC Magnetics) — actually: 2323 is CMC Magnetics; skip
-    "2356",  # Inventec
-    "2360",  # Chroma ATE
-    "3006",  # Yuanta Sec (no—3006 is actually not right); try 6282 Compeq
-    "6282",  # Compeq Manufacturing
-    "2327",  # Yageo
-    "2049",  # Hiwin Technologies
-    "2449",  # KYEC (King Yuan Electronics)
-    "6239",  # Powertech Technology
-    "3035",  # Faraday Technology (IC design)
-    "3529",  # eMemory Technology
-    "2385",  # Cyntec
-    "4966",  # 新唐 NuVoton
-    "3443",  # 創意電子 Global Unichip
-    "6669",  # 緯穎 Wiwynn
-    "6415",  # 矽力杰 Silergy
-    "3037",  # 欣興 Unimicron
-    "8046",  # 南電 Nanya PCB
-    "3231",  # Wistron
-    "2344",  # 華邦電 Winbond (check dup)
-    "2498",  # HTC
-    "2492",  # 華新科 Walsin Technology
-    "2311",  # 日月光投控 ASE Group
-    "4958",  # 臻鼎 Tripod Technology
-    "2603",  # 長榮 Evergreen Marine
-    "2609",  # 陽明 Yang Ming Marine
-    "2615",  # 萬海 Wan Hai
-    "2618",  # 長榮航空 EVA Air
-    "2610",  # 華航 China Airlines
-    "2105",  # 正新橡膠 — exclude (rubber)
-    "1402",  # 遠東新世紀
-    "1504",  # 東元電機
-    "2404",  # 漢唐 (HVAC)
-    "2371",  # 大同
-    "1590",  # 亞德客 AirTAC
-    "2014",  # 中鋼構 — skip steel adjacent
-    "9910",  # 豐泰 (Nike supplier)
-    "2548",  # 矽品 (now part of ASE)
-    "5483",  # 中美晶 GlobalWafers Group
-    "3149",  # 正達 (skip — small)
-    "8�詣",  # placeholder — remove
-    "2353",  # 宏碁 (duplicate of 2367)
-    "2404",  # (dup) skip
-    "1101",  # 台灣水泥 (cement — G1 exclude)
-    "1102",  # 亞泥 (cement — G1 exclude)
-    "2006",  # 中鋼 steel adjacent
-    "2201",  # 裕隆 Yulon Motor
-    "2881",  # dup
-    # Mid caps — semiconductor supply chain focus
-    "3711",  # ASE dup
-    "6443",  # 元晶 (solar — may exclude)
-    "3703",  # 欣奇通 (small)
-    "6121",  # 新普 (battery — OK)
-    "3042",  # 晶技 (timing)
-    "3059",  # 華晶科 (skip)
-    "2340",  # 台亞 (skip)
-    "5274",  # 信驊 ASPEED Technology
-    "6547",  # 高端疫苗 (biotech — G1 exclude)
-    "1533",  # 車王電 (vehicle electrics)
-    "2048",  # 勝碩 (skip)
-    "3017",  # 奇鋐 Auras Technology (thermal solutions)
-    "6415",  # 矽力杰 dup
-    "6285",  # 啟碁 (WiFi modules)
-    "3711",  # dup
-    "2379",  # dup Realtek
-    "4919",  # 新唐 NuVoton dup
-    "3706",  # 神達電腦
-    "2337",  # dup Macronix
-    "6612",  # 奇景光電 Himax (dual-listed so may differ)
-    "3376",  # 新日興 (hinge — notebook)
-    "6271",  # 東碩 (skip)
-    "8299",  # 群聯 Phison Electronics
-    "2379",  # dup
-    "3702",  # 大聯大 WPG Holdings (electronics dist)
-    "3481",  # dup Innolux
-    "6153",  # 嘉聯益 (PCB)
-    "3189",  # 景碩 (PCB)
-    "4919",  # dup NuVoton
-    "2330",  # dup TSMC
-    "3702",  # dup
-    "6541",  # 泰緯 (skip)
-    "6533",  # 晶心科 AndesCore (IC design)
-    "4763",  # 材料KY (specialty materials)
-    "3714",  # 富采 (mini LED)
-    "2308",  # dup Delta
-    "6416",  # 瑞鼎 (TDDI)
-    "3014",  # 聯特 (skip)
-    "2881",  # dup
-]
 
-# Clean universe: deduplicate, remove obvious errors, filter to valid 4-digit codes
-def clean_universe(raw: list) -> list:
-    seen = set()
-    clean = []
-    for sid in raw:
-        sid = str(sid).strip()
-        if not sid.isdigit() or len(sid) != 4:
+def _normalize_stock_ids(raw_values: list) -> list[str]:
+    normalized: list[str] = []
+    for value in raw_values:
+        text = str(value).strip()
+        if text.isdigit() and len(text) == 4:
+            normalized.append(text)
+    return normalized
+
+
+def _validate_universe(stock_ids: list[str], expected_size: int = UNIVERSE_SIZE) -> list[str]:
+    normalized = _normalize_stock_ids(stock_ids)
+    if len(normalized) != expected_size:
+        raise ValueError(f"Expected {expected_size} stock IDs, got {len(normalized)}")
+    if len(set(normalized)) != expected_size:
+        raise ValueError("Universe contains duplicate stock IDs")
+    return normalized
+
+
+def _parse_taifex_top200_from_table(table: pd.DataFrame, expected_size: int = UNIVERSE_SIZE) -> list[str]:
+    expected_ranks = list(range(1, expected_size + 1))
+    for idx in range(len(table.columns) - 1):
+        ranks = pd.to_numeric(table.iloc[:, idx], errors="coerce")
+        codes = table.iloc[:, idx + 1].astype(str).str.extract(r"(\d{4})", expand=False)
+        candidate = pd.DataFrame({"rank": ranks, "stock_id": codes}).dropna()
+        if candidate.empty:
             continue
-        if sid in seen:
-            continue
-        seen.add(sid)
-        clean.append(sid)
-    return clean
 
-# ── Authoritative TAIEX Top 200 — clean, no duplicates ───────────────────────
-# Using industry knowledge of TAIEX composition as of Q1 2026.
-# Ranked approximately by market cap descending.
-UNIVERSE = [
-    # TOP 50 by market cap
-    "2330",  # TSMC
-    "2317",  # Hon Hai
-    "2454",  # MediaTek
-    "2382",  # Quanta
-    "2308",  # Delta Electronics
-    "3711",  # ASE Technology Holding
-    "2303",  # UMC
-    "2881",  # Fubon Financial
-    "2882",  # Cathay Financial
-    "2412",  # Chunghwa Telecom
-    "2884",  # E.Sun Financial
-    "2886",  # Mega Financial
-    "2891",  # CTBC Financial
-    "2892",  # First Financial
-    "5876",  # ShangBancorp (Shanghai Comm)
-    "2887",  # Taishin Financial
-    "2885",  # Yuanta Financial
-    "2883",  # Dahshin Securities Financial
-    "1301",  # Formosa Plastics
-    "1303",  # Nan Ya Plastics
-    "1326",  # Formosa Chemicals
-    "6505",  # FPCC (Formosa Petrochem)
-    "2002",  # China Steel
-    "1216",  # Uni-President
-    "2912",  # President Chain Store
-    "2207",  # Hotai Motor
-    "2395",  # Advantech
-    "2379",  # Realtek
-    "3034",  # Novatek
-    "2357",  # ASUS
-    "4904",  # Far EasTone
-    "3045",  # Taiwan Mobile
-    "2324",  # Compal
-    "3231",  # Wistron
-    "2301",  # Lite-On
-    "2409",  # AUO
-    "3481",  # Innolux
-    "2376",  # Gigabyte
-    "2347",  # Synnex
-    "4938",  # Pegatron
-    "6488",  # GlobalWafers
-    "2408",  # Winbond
-    "3008",  # Largan Precision
-    "2474",  # Catcher
-    "2356",  # Inventec
-    "2360",  # Chroma ATE
-    "6282",  # Compeq Manufacturing
-    "2327",  # Yageo
-    "2049",  # Hiwin
-    "2449",  # KYEC
-    # 51-100
-    "6239",  # Powertech Technology
-    "3035",  # Faraday Technology
-    "3529",  # eMemory
-    "3443",  # Global Unichip
-    "6669",  # Wiwynn
-    "6415",  # Silergy
-    "3037",  # Unimicron
-    "8046",  # Nanya PCB
-    "2344",  # Winbond (duplicate — skip; 2344 is actually 華邦 — same as 2408? No: 2408=Winbond, 2344=Walsin Lihwa)
-    "2492",  # Walsin Technology
-    "2311",  # ASE Group (underlying listed entity)
-    "4958",  # Tripod Technology
-    "2603",  # Evergreen Marine
-    "2609",  # Yang Ming
-    "2615",  # Wan Hai
-    "2618",  # EVA Airways
-    "2610",  # China Airlines
-    "9910",  # Feng Tay Enterprise (Nike supplier)
-    "1590",  # AirTAC International
-    "5483",  # Zhongmei Crystal (GlobalWafers affiliate)
-    "5274",  # ASPEED Technology
-    "3017",  # Auras Technology
-    "6285",  # Sercomm / Ku Ai (WiFi — actually 6285 is 啟碁)
-    "8299",  # Phison Electronics
-    "3702",  # WPG Holdings
-    "6153",  # Zhen Ding (same as Tripod? no — 6153 is Garmin TW? let me correct)
-    "3189",  # Jingshuo (PCB)
-    "6533",  # AndesCore
-    "3714",  # Lextar / Epistar group
-    "6416",  # Raydium (TDDI)
-    "3376",  # Shin Zu Shing (notebook hinges)
-    "2337",  # Macronix
-    "2367",  # Acer
-    "6121",  # Simplo Technology (battery packs)
-    "3042",  # Crystal Frequency Technology
-    "4966",  # NuVoton
-    "3706",  # Mitac
-    "2201",  # Yulon Motor
-    "1402",  # Far Eastern New Century
-    "1504",  # TECO Electric
-    "2371",  # Tatung
-    "4763",  # Materials Tech KY
-    "2352",  # BenQ Qisda
-    "2385",  # Cyntec
-    # 101-150
-    "6271",  # Toplus (skip — small; but keep for now)
-    "6547",  # High-End Vaccine — skip, biotech no catalyst
-    "2014",  # China Steel Structure
-    "2006",  # Santien (steel adjacent)
-    "1533",  # 車王電 Vehicle Electronics
-    "3706",  # dup Mitac
-    "6541",  # Tailwing (skip)
-    "6443",  # 元晶 Solar (exclude G1)
-    "2498",  # HTC — legacy, revenue collapse risk
-    "3703",  # Xin Qitong (small)
-    "3059",  # 華晶科 (skip — small)
-    "2340",  # Taiwan SoC (skip)
-    "4919",  # NuVoton dup
-    "6612",  # Himax Technologies
-    "3149",  # 正達 (skip — specialty glass)
-    "2404",  # 漢唐 (HVAC for fabs)
-    "2048",  # 勝碩 (skip)
-    "6416",  # dup Raydium
-    "2548",  # Siliconware — absorbed into ASE; now 2311
-    "1101",  # Taiwan Cement — G1 exclude
-    "1102",  # Asia Cement — G1 exclude
-    "2105",  # Cheng Shin Rubber — keep (tires, not pure shipping)
-    "2014",  # dup CCS Structure
-    "3059",  # dup
-    "2323",  # CMC Magnetics — legacy optical media; skip
-    "2353",  # Acer dup
-    # 151-200: smaller market cap, still top 200
-    "6446",  # 藥華藥 Pharmacyte — biotech; skip unless catalyst
-    "1710",  # 東聯化學 Oriental U-Chem
-    "2027",  # 大成鋼 — steel; exclude
-    "1314",  # 中石化 CPC affiliate
-    "5009",  # 榮化 (petrochemical)
-    "1802",  # 台玻 Taiwan Glass (building materials; exclude)
-    "9941",  # 裕融 Luxgen Finance (auto financing)
-    "5880",  # 合庫金 Taiwan Cooperative Bank
-    "2890",  # 永豐金 SinoPac Financial
-    "2888",  # 新光金 Shin Kong Financial
-    "2889",  # 國票金 IBT Financial
-    "2820",  # 華票 (commercial paper)
-    "5871",  # 中租控股 Chailease Holding
-    "5876",  # dup
-    "6278",  # 台表科 TSC Auto (PCB)
-    "6669",  # dup Wiwynn
-    "3019",  # 亞光 Asia Optical
-    "5269",  # 祥碩 ASMedia
-    "4967",  # 十銓 Team Group
-    "2344",  # Walsin Lihwa (wire/cable)
-    "1560",  # 中砂 Kinik (abrasives — niche)
-    "2474",  # dup Catcher
-    "4961",  # 天鈺 Fitipower (PMIC)
-    "3682",  # 亞信 Askey (networking)
-    "3306",  # 鼎翰 TSC
-    "6277",  # 宏正 ATEN International
-    "2396",  # 精英 ECS (motherboard)
-    "2353",  # Acer dup
-    "3661",  # 世芯 Alchip Technologies
-    "3673",  # TPK Holding
-    "6271",  # dup
-    "3711",  # dup ASE
-]
+        candidate["rank"] = candidate["rank"].astype(int)
+        top = candidate[candidate["rank"].between(1, expected_size)].sort_values("rank")
+        if top["rank"].tolist() == expected_ranks:
+            return _validate_universe(top["stock_id"].tolist(), expected_size=expected_size)
+
+    raise ValueError("Could not locate a rank/code column pair covering ranks 1-200")
+
+
+def fetch_live_universe(
+    url: str = TAIFEX_TAIEX_URL,
+    timeout_sec: int = 20,
+) -> tuple[list[str], dict[str, str]]:
+    response = requests.get(url, timeout=timeout_sec)
+    response.raise_for_status()
+
+    tables = pd.read_html(StringIO(response.text))
+    last_parse_error: Optional[Exception] = None
+    for table in tables:
+        try:
+            stock_ids = _parse_taifex_top200_from_table(table)
+            return stock_ids, {
+                "universe_source": "live",
+                "universe_as_of": datetime.today().strftime("%Y-%m-%d"),
+                "source_url": url,
+            }
+        except ValueError as exc:
+            last_parse_error = exc
+            continue
+
+    raise RuntimeError(
+        "TAIFEX page fetched successfully, but the top-200 table could not be parsed"
+        + (f": {last_parse_error}" if last_parse_error else "")
+    )
+
+
+def load_snapshot_universe(path: Optional[str] = None) -> tuple[list[str], dict[str, str]]:
+    snapshot_path = path or SNAPSHOT_PATH
+    with open(snapshot_path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    stock_ids = _validate_universe(payload.get("stock_ids", []))
+    as_of = str(payload.get("as_of", "")).strip()
+    if not as_of:
+        raise ValueError("Snapshot is missing `as_of` metadata")
+
+    metadata = {
+        "universe_source": "snapshot_fallback",
+        "universe_as_of": as_of,
+        "source_url": str(payload.get("source_url", "")).strip(),
+    }
+    return stock_ids, metadata
+
+
+def build_universe() -> tuple[list[str], dict[str, str]]:
+    """Return the live TAIFEX top-200 universe, or a checked-in fallback snapshot."""
+    live_error: Optional[Exception] = None
+
+    try:
+        stock_ids, metadata = fetch_live_universe()
+        log.info("Universe built from live TAIFEX source: %d stock IDs", len(stock_ids))
+        return stock_ids, metadata
+    except Exception as exc:  # noqa: BLE001
+        live_error = exc
+        log.warning("Live TAIFEX universe fetch failed: %s", exc)
+
+    try:
+        stock_ids, metadata = load_snapshot_universe()
+        metadata["fallback_reason"] = str(live_error) if live_error else "live fetch unavailable"
+        log.warning(
+            "Universe loaded from snapshot fallback (%s): %d stock IDs",
+            metadata["universe_as_of"],
+            len(stock_ids),
+        )
+        return stock_ids, metadata
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Failed to build the top-200 universe from both live TAIFEX and snapshot sources: "
+            f"live_error={live_error}; snapshot_error={exc}"
+        ) from exc
 
 # ── Gate 1 industry context ───────────────────────────────────────────────────
 # Apr 2026 macro read:
@@ -391,28 +185,45 @@ UNIVERSE = [
 # - Domestic: soft consumer spending; financials stable on NIM recovery
 # - Shipping: freight rates normalizing post-Red Sea premium; overcapacity rebuilding
 
-# Excluded by Gate 1: structural headwinds or no institutional sponsorship direction
-G1_EXCLUDE_IDS = {
-    # Shipping — freight rate cycle turning, overcapacity
-    "2603", "2609", "2615", "2618", "2610",
-    # Steel / cement / basic materials — China demand drag
-    "2002", "2006", "2014", "2027", "1101", "1102", "1802",
-    # Petrochemical / plastics — margin compressed, China supply glut
-    "1301", "1303", "1326", "6505", "1314", "5009",
-    # Biotech pre-revenue — no dated catalyst anchor
-    "6547", "6446",
-    # Legacy consumer electronics in structural decline
-    "2498",  # HTC
-    "2323",  # CMC Magnetics (optical media)
-    # Rubber
-    "2105",
-    # Solar
-    "6443",
-    # Very small/illiquid candidates not in top 200 by market cap
-    "3703", "3059", "2340", "3149", "2548", "6541", "3149",
-    "2353", "4919", "2404", "2048", "1710", "1710", "2820",
-    "3019", "4967", "3682", "3306", "6277", "2396", "3673",
-    "6271", "1560", "4961",
+G1_EXCLUSION_BUCKETS = [
+    (
+        "Shipping — freight rates normalizing and overcapacity rebuilding",
+        {"2603", "2609", "2615", "2618", "2610"},
+    ),
+    (
+        "Steel/cement/basic materials — China demand drag and weak cycle support",
+        {"2002", "2006", "2014", "2027", "1101", "1102", "1802"},
+    ),
+    (
+        "Petrochemical/plastics — margin compression and China supply glut",
+        {"1301", "1303", "1326", "6505", "1314", "5009"},
+    ),
+    (
+        "Biotech pre-revenue profile — no dated catalyst anchor",
+        {"6547", "6446"},
+    ),
+    (
+        "Legacy consumer electronics structural decline",
+        {"2498", "2323"},
+    ),
+    (
+        "Rubber/solar cycles outside current Gate 1 posture",
+        {"2105", "6443"},
+    ),
+    (
+        "Out-of-favor small/illiquid tail names for this deterministic batch funnel",
+        {
+            "3703", "3059", "2340", "3149", "2548", "6541",
+            "2353", "4919", "2404", "2048", "1710", "2820",
+            "3019", "4967", "3682", "3306", "6277", "2396",
+            "3673", "6271", "1560", "4961",
+        },
+    ),
+]
+G1_REJECT_REASONS = {
+    stock_id: reason
+    for reason, stock_ids in G1_EXCLUSION_BUCKETS
+    for stock_id in stock_ids
 }
 
 # Specifically favored (Gate 1 positive) — AI/semi supply chain, financials
@@ -432,28 +243,21 @@ G1_FAVOR_IDS = {
     "9910",                                                            # Feng Tay (Nike supplier)
 }
 
-
-def build_universe() -> list[str]:
-    """Return deduplicated, validated universe list."""
-    seen = set()
-    result = []
-    for sid in UNIVERSE:
-        sid = str(sid).strip()
-        if not sid.isdigit() or len(sid) != 4:
+def apply_gate1(universe: list[str]) -> tuple[list[str], dict[str, dict[str, str]]]:
+    """Gate 1 — deterministic directional industry filter with auditable rejects."""
+    passers: list[str] = []
+    rejects: dict[str, dict[str, str]] = {}
+    for stock_id in universe:
+        reason = G1_REJECT_REASONS.get(stock_id)
+        if reason:
+            rejects[stock_id] = {
+                "gate": "Gate 1",
+                "reason": reason,
+            }
             continue
-        if sid in seen:
-            continue
-        seen.add(sid)
-        result.append(sid)
-    log.info(f"Universe built: {len(result)} unique valid stock IDs")
-    return result
+        passers.append(stock_id)
 
-
-def apply_gate1(universe: list[str]) -> tuple[list[str], dict]:
-    """Gate 1 — directional industry filter. Disabled per user request."""
-    passers = list(universe)
-    rejects = {}
-    log.info(f"Gate 1: {len(passers)} pass, 0 excluded (industry filter disabled)")
+    log.info("Gate 1: %d pass, %d excluded", len(passers), len(rejects))
     return passers, rejects
 
 
@@ -520,13 +324,24 @@ def run_gate3_batch(stock_ids: list) -> tuple[list, dict]:
                 stock_id, result = future.result()
                 g3_results[stock_id] = result
                 done += 1
-                score = getattr(result, "score", "N/A") if result else "ERR"
+                score = getattr(result, "total_score", "N/A") if result else "ERR"
                 verdict = getattr(result, "verdict", "ERR") if result else "ERR"
                 hf = getattr(result, "hard_fail_triggered", "?") if result else "?"
                 log.info(f"  [{done}/{len(stock_ids)}] {stock_id}: score={score}, verdict={verdict}, hf={hf}")
             except Exception as e:
                 log.warning(f"Gate 3 future error {sid}: {e}")
 
+    passers, conditional = classify_gate3_results(g3_results)
+    log.info(
+        "Gate 3: %d Pass, %d Conditional Watchlist, %d Fail/Error",
+        len(passers),
+        len(conditional),
+        len(g3_results) - len(passers) - len(conditional),
+    )
+    return passers, g3_results
+
+
+def classify_gate3_results(g3_results: dict) -> tuple[list[str], list[str]]:
     passers = [
         sid for sid, r in g3_results.items()
         if r
@@ -537,11 +352,9 @@ def run_gate3_batch(stock_ids: list) -> tuple[list, dict]:
         sid for sid, r in g3_results.items()
         if r
         and not getattr(r, "hard_fail_triggered", True)
-        and getattr(r, "verdict", "") == "Conditional"
+        and getattr(r, "verdict", "") == "Conditional Watchlist"
     ]
-    log.info(f"Gate 3: {len(passers)} Pass, {len(conditional)} Conditional, "
-             f"{len(g3_results) - len(passers) - len(conditional)} Fail/Error")
-    return passers, g3_results
+    return passers, conditional
 
 
 def run_gate65_single(args):
@@ -583,7 +396,7 @@ def run_gate65_batch(stock_ids: list) -> tuple[list, dict]:
 
 
 def compile_final(
-    g3_passers: list,
+    ranked_ids: list,
     g3_results: dict,
     g65_results: dict,
     triage_results: dict,
@@ -595,11 +408,11 @@ def compile_final(
         "Reject for Book Fit": 0,
     }
     records = []
-    for sid in g3_passers:
+    for sid in ranked_ids:
         g3 = g3_results.get(sid)
         g65 = g65_results.get(sid)
         tr = triage_results.get(sid)
-        g3_score = getattr(g3, "score", 0) if g3 else 0
+        g3_score = getattr(g3, "total_score", 0) if g3 else 0
         g65_verdict = getattr(g65, "verdict", "N/A") if g65 else "N/A"
         # Favor bias for G1 favorites
         g1_bonus = 5 if sid in G1_FAVOR_IDS else 0
@@ -651,7 +464,7 @@ def main():
         log.info("Active token: BACKUP (primary check failed)")
 
     # ── Step 0: Build universe ─────────────────────────────────────────────
-    universe = build_universe()
+    universe, universe_meta = build_universe()
 
     # ── Step 1: Gate 1 — industry filter ──────────────────────────────────
     g1_passers, g1_rejects = apply_gate1(universe)
@@ -665,24 +478,25 @@ def main():
 
     # ── Step 3: Gate 3 ─────────────────────────────────────────────────────
     g3_passers, g3_results = run_gate3_batch(triage_passers)
+    _, g3_conditional = classify_gate3_results(g3_results)
+    ranked_ids = list(g3_passers)
 
     # ── Step 4: Gate 6.5 ───────────────────────────────────────────────────
-    if g3_passers:
-        _, g65_results = run_gate65_batch(g3_passers)
+    if ranked_ids:
+        _, g65_results = run_gate65_batch(ranked_ids)
+        ranking_label = "Gate 3 Passes"
     else:
-        log.warning("No Gate 3 passers — running Gate 6.5 on Conditional names")
-        conditional = [s for s, r in g3_results.items()
-                       if r and not getattr(r, "hard_fail_triggered", True)
-                       and getattr(r, "verdict", "") == "Conditional"]
-        g3_passers = conditional
-        _, g65_results = run_gate65_batch(conditional)
+        log.warning("No Gate 3 passes — running Gate 6.5 on Conditional Watchlist names")
+        ranked_ids = list(g3_conditional)
+        _, g65_results = run_gate65_batch(ranked_ids)
+        ranking_label = "Gate 3 Conditional Watchlist"
 
     # ── Step 5: Compile & rank ─────────────────────────────────────────────
-    final = compile_final(g3_passers, g3_results, g65_results, triage_results)
+    final = compile_final(ranked_ids, g3_results, g65_results, triage_results)
 
     # ── Output ─────────────────────────────────────────────────────────────
     log.info("\n" + "=" * 70)
-    log.info("RANKED SCREEN OUTPUT — ALL GATE 3 PASSERS")
+    log.info("RANKED SCREEN OUTPUT — %s", ranking_label.upper())
     log.info("=" * 70)
     for i, rec in enumerate(final, 1):
         adv = rec["adv_ntd"]
@@ -700,11 +514,14 @@ def main():
     # Save
     output = {
         "run_date": TODAY.strftime("%Y-%m-%d %H:%M"),
+        "universe_source": universe_meta["universe_source"],
+        "universe_as_of": universe_meta["universe_as_of"],
         "funnel": {
             "universe": len(universe),
             "gate1_pass": len(g1_passers),
             "triage_pass": len(triage_passers),
             "gate3_pass": len(g3_passers),
+            "gate3_conditional": len(g3_conditional),
             "final": len(final),
         },
         "top10": final[:10],
@@ -717,7 +534,7 @@ def main():
         },
         "gate3_details": {
             sid: {
-                "score": getattr(r, "score", None),
+                "total_score": getattr(r, "total_score", None),
                 "verdict": getattr(r, "verdict", None),
                 "hard_fail": getattr(r, "hard_fail_triggered", None),
             }
@@ -730,7 +547,8 @@ def main():
     log.info(f"\nFull results saved → {RESULTS_PATH}")
     log.info(
         f"Funnel: {len(universe)} universe → G1:{len(g1_passers)} → "
-        f"Triage:{len(triage_passers)} → G3:{len(g3_passers)} → Final:{len(final)}"
+        f"Triage:{len(triage_passers)} → G3 Pass:{len(g3_passers)} "
+        f"/ Conditional:{len(g3_conditional)} → Final:{len(final)}"
     )
     return final
 
