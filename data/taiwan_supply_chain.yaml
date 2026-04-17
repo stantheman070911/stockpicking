@@ -1,0 +1,61 @@
+{
+  "as_of": "2026-04-18",
+  "source": [
+    "Derived from taiwan_equity_toolkit.config.INDUSTRY_ANCHORS",
+    "Expanded with semiconductor chain anchors referenced in Taiwan_Equity_Agent_System_Prompt.md",
+    "Editorial fallback for V2 free-tier mode until a premium TaiwanStockIndustryChain adapter lands"
+  ],
+  "clusters": {
+    "semiconductor": {
+      "description": "Curated Taiwan semiconductor chain used when premium industry-chain data is unavailable.",
+      "foundry": ["2330", "2303", "6770"],
+      "idm": ["2337", "2344", "2408"],
+      "osat": ["2308", "3711", "6239", "2449"],
+      "ic_design": ["2454", "3034", "3443"],
+      "equipment": ["3131", "3583", "6187"],
+      "odm_oem": ["2317", "2382", "3231", "2324"],
+      "upstream": {
+        "foundry": ["equipment"],
+        "idm": ["foundry"],
+        "osat": ["foundry", "idm"],
+        "ic_design": ["foundry"],
+        "equipment": [],
+        "odm_oem": ["osat", "ic_design"]
+      },
+      "downstream": {
+        "foundry": ["idm", "osat", "ic_design"],
+        "idm": ["osat"],
+        "osat": ["odm_oem"],
+        "ic_design": ["odm_oem"],
+        "equipment": ["foundry", "idm", "osat"],
+        "odm_oem": []
+      }
+    },
+    "financials": {
+      "description": "Domestic rate, credit, and wealth-management sensitive financial holdings.",
+      "financial_holding": ["2881", "2882", "2884", "2886"],
+      "upstream": {
+        "financial_holding": []
+      },
+      "downstream": {
+        "financial_holding": []
+      }
+    },
+    "cyclical_discretionary": {
+      "description": "Export cyclicals and discretionary-demand proxies kept in Path A so non-semi sectors remain classifiable.",
+      "container_shipping": ["2603", "2609", "2615"],
+      "automotive_distribution": ["2207", "1526", "9941"],
+      "apparel_lifestyle": ["1476", "9910"],
+      "upstream": {
+        "container_shipping": [],
+        "automotive_distribution": [],
+        "apparel_lifestyle": []
+      },
+      "downstream": {
+        "container_shipping": [],
+        "automotive_distribution": [],
+        "apparel_lifestyle": []
+      }
+    }
+  }
+}

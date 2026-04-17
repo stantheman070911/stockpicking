@@ -1,0 +1,87 @@
+{
+  "as_of": "2026-04-18",
+  "source": [
+    "Curated from Taiwan governance failure modes referenced in AGENTS.md and plan.md",
+    "Designed for substring or regex-light scans against TaiwanStockNews in free-tier mode"
+  ],
+  "patterns": [
+    {
+      "id": "share_pledging",
+      "label": "Share pledging / pledged shares",
+      "severity": "high",
+      "keywords": ["質押", "股權質押", "pledged shares", "share pledge"]
+    },
+    {
+      "id": "cross_affiliate_guarantee",
+      "label": "Cross-affiliate guarantee",
+      "severity": "high",
+      "keywords": ["背書保證", "guarantee for affiliate", "cross-affiliate guarantee"]
+    },
+    {
+      "id": "related_party_transaction",
+      "label": "Related-party transaction",
+      "severity": "high",
+      "keywords": ["關係人交易", "關係企業交易", "related party transaction", "affiliate transaction"]
+    },
+    {
+      "id": "auditor_change",
+      "label": "Auditor change",
+      "severity": "high",
+      "keywords": ["更換會計師", "會計師異動", "auditor change", "auditor resignation"]
+    },
+    {
+      "id": "restatement",
+      "label": "Financial restatement",
+      "severity": "high",
+      "keywords": ["重編", "重述財報", "restatement", "restate financials"]
+    },
+    {
+      "id": "going_concern",
+      "label": "Going concern warning",
+      "severity": "high",
+      "keywords": ["繼續經營", "繼續經營能力", "going concern", "substantial doubt"]
+    },
+    {
+      "id": "dissolution",
+      "label": "Dissolution / liquidation",
+      "severity": "high",
+      "keywords": ["解散", "清算", "dissolution", "liquidation"]
+    },
+    {
+      "id": "trading_halt",
+      "label": "Trading halt / suspension",
+      "severity": "high",
+      "keywords": ["停止交易", "暫停交易", "trading halt", "trading suspension"]
+    },
+    {
+      "id": "reorganization",
+      "label": "Reorganization filing",
+      "severity": "high",
+      "keywords": ["聲請重整", "重整", "reorganization", "restructuring filing"]
+    },
+    {
+      "id": "embezzlement",
+      "label": "Embezzlement / asset tunneling",
+      "severity": "critical",
+      "keywords": ["掏空", "挪用", "embezzlement", "asset tunneling"]
+    },
+    {
+      "id": "insider_trading",
+      "label": "Insider trading",
+      "severity": "critical",
+      "keywords": ["內線交易", "insider trading", "material nonpublic information"]
+    },
+    {
+      "id": "financial_statement_fraud",
+      "label": "Financial statement fraud",
+      "severity": "critical",
+      "keywords": ["財報不實", "不實財報", "financial statement fraud", "false financial statements"]
+    },
+    {
+      "id": "director_resignation",
+      "label": "Director or supervisor resignation",
+      "severity": "medium",
+      "keywords": ["董事辭任", "監察人辭任", "director resignation", "board resignation"]
+    }
+  ]
+}
