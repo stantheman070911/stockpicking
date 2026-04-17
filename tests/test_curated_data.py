@@ -37,19 +37,33 @@ class CuratedDataTests(unittest.TestCase):
         governance = _load_yaml_like_json(DATA_DIR / "taiwan_governance_redflags.yaml")
 
         self.assertIn("as_of", supply_chain)
-        self.assertIn("clusters", supply_chain)
+        self.assertIn("semiconductor", supply_chain)
         self.assertIn("as_of", governance)
         self.assertIn("patterns", governance)
 
     def test_every_industry_anchor_stock_is_present_in_supply_chain_map(self) -> None:
         supply_chain = _load_yaml_like_json(DATA_DIR / "taiwan_supply_chain.yaml")
-        stock_ids = _collect_stock_ids(supply_chain["clusters"])
+        cluster_map = {
+            key: value for key, value in supply_chain.items() if key not in {"as_of", "source"}
+        }
+        stock_ids = _collect_stock_ids(cluster_map)
         expected = {stock_id for stocks in INDUSTRY_ANCHORS.values() for stock_id in stocks}
 
         self.assertTrue(
             expected.issubset(stock_ids),
             msg=f"Missing supply-chain coverage for: {sorted(expected - stock_ids)}",
         )
+
+    def test_supply_chain_map_exposes_bidirectional_links_per_cluster(self) -> None:
+        supply_chain = _load_yaml_like_json(DATA_DIR / "taiwan_supply_chain.yaml")
+        cluster_map = {
+            key: value for key, value in supply_chain.items() if key not in {"as_of", "source"}
+        }
+
+        for cluster_name, cluster_payload in cluster_map.items():
+            with self.subTest(cluster=cluster_name):
+                self.assertIn("upstream", cluster_payload)
+                self.assertIn("downstream", cluster_payload)
 
     def test_governance_keyword_yaml_has_minimum_pattern_depth(self) -> None:
         governance = _load_yaml_like_json(DATA_DIR / "taiwan_governance_redflags.yaml")
