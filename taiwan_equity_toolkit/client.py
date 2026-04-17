@@ -26,6 +26,7 @@ from taiwan_equity_toolkit.config import (
     FINMIND_BASE_URL,
     FINMIND_USER_INFO_URL,
     MAX_RETRIES,
+    PREMIUM_DATASETS,
     RATE_LIMIT_PER_HOUR,
     RETRY_BACKOFF_SEC,
     DEFAULT_TIMEOUT_SEC,
@@ -40,6 +41,24 @@ class FinMindError(Exception):
 
 class RateLimitExceeded(FinMindError):
     """API quota exhausted."""
+
+
+class PremiumDatasetRequired(FinMindError):
+    """Raised when a premium (Backer/Sponsor) dataset is requested on a
+    free-tier client.
+
+    This replaces the previous behaviour of letting the HTTP call 400 silently.
+    Callers in V2 catch this and surface Status.NOT_ASSESSED with a clear note.
+    """
+
+
+def is_premium(dataset: str) -> bool:
+    """Return True if dataset is Backer/Sponsor-only on FinMind.
+
+    Consulted by FinMindClient.get() before every HTTP call so free-tier runs
+    never silently 400 on a tier-locked endpoint.
+    """
+    return dataset in PREMIUM_DATASETS
 
 
 @dataclass
@@ -66,13 +85,24 @@ class FinMindClient:
         token: str,
         base_url: str = FINMIND_BASE_URL,
         timeout: int = DEFAULT_TIMEOUT_SEC,
+        allow_premium: bool = False,
     ):
         if not token:
             raise ValueError("FinMind token is required.")
         self._token = token
         self._base_url = base_url
         self._timeout = timeout
+        self._allow_premium = allow_premium
         self._headers = {"Authorization": f"Bearer {token}"}
+
+    @property
+    def allow_premium(self) -> bool:
+        return self._allow_premium
+
+    @staticmethod
+    def is_premium(dataset: str) -> bool:
+        """Free-tier-unsafe datasets, per Finmind.md tier notes."""
+        return is_premium(dataset)
 
     # ──────────────────────────────────────────────────────────────────
     # Quota
@@ -111,6 +141,19 @@ class FinMindClient:
         Returns:
             DataFrame with the raw response rows.
         """
+        # Gate premium datasets BEFORE the HTTP call so free-tier pipelines
+        # never silently 400. Callers in V2 catch PremiumDatasetRequired and
+        # surface Status.NOT_ASSESSED with a clear note; the adapter path
+        # (adapters/premium.py) flips allow_premium=True when a Backer/Sponsor
+        # token is active.
+        if is_premium(dataset) and not self._allow_premium:
+            raise PremiumDatasetRequired(
+                f"Dataset '{dataset}' requires FinMind Backer/Sponsor tier. "
+                f"Free-tier pipeline skipping — call via "
+                f"taiwan_equity_toolkit.adapters.premium with a premium token, "
+                f"or set allow_premium=True on the client."
+            )
+
         params: dict[str, Any] = {"dataset": dataset}
         if stock_id:
             params["data_id"] = stock_id
