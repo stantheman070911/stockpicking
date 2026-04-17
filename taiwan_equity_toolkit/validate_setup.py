@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 
 from taiwan_equity_toolkit import FinMindClient, triage, gate3
 from taiwan_equity_toolkit.config import load_token
+from taiwan_equity_toolkit.states import Status
 from taiwan_equity_toolkit.parsers import (
     BALANCE_SHEET_LEDGER,
     CASH_FLOW_LEDGER,
@@ -194,7 +195,10 @@ def check_triage_and_gate3(client: FinMindClient, stock_id: str, status: Validat
         tr = triage.run(client, stock_id=stock_id)
         say(OK if tr.passed else WARN, f"Triage verdict: {'PASS' if tr.passed else 'FAIL'}")
         for check in tr.checks:
-            marker = OK if check.passed else FAIL
+            if getattr(check, "status", None) == Status.NOT_ASSESSED:
+                marker = WARN
+            else:
+                marker = OK if check.passed else FAIL
             say(f"    {marker}", f"{check.name}: {check.detail}")
         if tr.notes:
             for note in tr.notes:

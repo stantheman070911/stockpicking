@@ -2,6 +2,8 @@ import unittest
 
 import pandas as pd
 
+from taiwan_equity_toolkit.client import PremiumDatasetRequired
+from taiwan_equity_toolkit.states import Status
 from taiwan_equity_toolkit import triage
 
 
@@ -58,6 +60,20 @@ class ShortRevenueHistoryClient(DummyTriageClient):
         ])
 
 
+class CleanPremiumCheckClient(DummyTriageClient):
+    def get(self, dataset: str, stock_id: str, start_date: str):
+        if dataset == "TaiwanStockSuspended":
+            return pd.DataFrame()
+        return super().get(dataset, stock_id, start_date)
+
+
+class PremiumDatasetGapClient(CleanPremiumCheckClient):
+    def get(self, dataset: str, stock_id: str, start_date: str):
+        if dataset in {"TaiwanStockDispositionSecuritiesPeriod", "TaiwanStockSuspended"}:
+            raise PremiumDatasetRequired(f"{dataset} requires premium tier")
+        return super().get(dataset, stock_id, start_date)
+
+
 class TriageSuspensionTests(unittest.TestCase):
     def test_missing_resumption_date_fails_triage_as_active_suspension(self) -> None:
         result = triage.run(DummyTriageClient(), stock_id="2330")
@@ -74,6 +90,19 @@ class TriageSuspensionTests(unittest.TestCase):
         disposition_check = next(check for check in result.checks if check.name == "Disposition status")
         self.assertFalse(disposition_check.passed)
         self.assertIn("unavailable", disposition_check.detail)
+
+    def test_premium_dataset_gaps_do_not_fail_triage(self) -> None:
+        result = triage.run(PremiumDatasetGapClient(), stock_id="2330")
+
+        self.assertTrue(result.passed)
+        disposition_check = next(check for check in result.checks if check.name == "Disposition status")
+        suspension_check = next(check for check in result.checks if check.name == "Trading suspension")
+        self.assertTrue(disposition_check.passed)
+        self.assertTrue(suspension_check.passed)
+        self.assertEqual(disposition_check.status, Status.NOT_ASSESSED)
+        self.assertEqual(suspension_check.status, Status.NOT_ASSESSED)
+        self.assertIn("not assessed on free tier", disposition_check.detail)
+        self.assertEqual(result.failures(), [])
 
     def test_missing_monthly_yoy_data_fails_triage(self) -> None:
         result = triage.run(ShortRevenueHistoryClient(), stock_id="2330")

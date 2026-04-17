@@ -63,6 +63,29 @@ class ClientPremiumDetectionTests(unittest.TestCase):
 
         mock_get.assert_not_called()
 
+    def test_get_still_blocks_premium_dataset_without_confirmed_tier(self) -> None:
+        client = FinMindClient(token="test-token", allow_premium=True)
+
+        with patch("taiwan_equity_toolkit.client.requests.get") as mock_get:
+            with self.assertRaises(PremiumDatasetRequired):
+                client.get("TaiwanStockIndustryChain")
+
+        mock_get.assert_not_called()
+
+    def test_get_allows_premium_dataset_only_when_tier_confirmed(self) -> None:
+        client = FinMindClient(
+            token="test-token",
+            allow_premium=True,
+            premium_tier_confirmed=True,
+        )
+        response = FakeResponse({"status": 200, "data": []})
+
+        with patch("taiwan_equity_toolkit.client.requests.get", return_value=response) as mock_get:
+            frame = client.get("TaiwanStockIndustryChain")
+
+        self.assertIsInstance(frame, pd.DataFrame)
+        mock_get.assert_called_once()
+
     def test_get_passes_through_for_free_dataset(self) -> None:
         response = FakeResponse(
             {

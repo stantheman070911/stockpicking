@@ -13,9 +13,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 
-from taiwan_equity_toolkit.client import FinMindClient
+from taiwan_equity_toolkit.client import FinMindClient, PremiumDatasetRequired
 from taiwan_equity_toolkit.config import DEFAULT_CONFIG, TriageConfig
 from taiwan_equity_toolkit import metrics, parsers
+from taiwan_equity_toolkit.states import Status
 
 
 @dataclass
@@ -24,6 +25,11 @@ class TriageCheck:
     passed: bool
     detail: str
     source: str = ""
+    status: Optional[Status] = None
+
+    def __post_init__(self) -> None:
+        if self.status is None:
+            self.status = Status.PASSED if self.passed else Status.FAILED
 
 
 @dataclass
@@ -35,13 +41,18 @@ class TriageResult:
     notes: list[str] = field(default_factory=list)
 
     def failures(self) -> list[TriageCheck]:
-        return [c for c in self.checks if not c.passed]
+        return [c for c in self.checks if c.status == Status.FAILED]
 
     def summary(self) -> str:
         verdict = "PASS" if self.passed else "FAIL"
         lines = [f"Triage verdict: {verdict} ({self.stock_id})"]
         for c in self.checks:
-            mark = "✓" if c.passed else "✗"
+            if c.status == Status.NOT_ASSESSED:
+                mark = "~"
+            elif c.status == Status.PASSED:
+                mark = "✓"
+            else:
+                mark = "✗"
             lines.append(f"  {mark} {c.name}: {c.detail}")
         return "\n".join(lines)
 
@@ -50,6 +61,19 @@ def _fail_closed(result: TriageResult, name: str, detail: str, source: str) -> N
     result.notes.append(detail)
     result.checks.append(TriageCheck(name, False, detail, source))
     result.passed = False
+
+
+def _mark_not_assessed(result: TriageResult, name: str, detail: str, source: str) -> None:
+    result.notes.append(detail)
+    result.checks.append(
+        TriageCheck(
+            name,
+            True,
+            detail,
+            source,
+            status=Status.NOT_ASSESSED,
+        )
+    )
 
 
 def run(
@@ -109,6 +133,13 @@ def run(
                 "Disposition status", True, "No disposition history in last 180 days",
                 "TaiwanStockDispositionSecuritiesPeriod"
             ))
+    except PremiumDatasetRequired as e:
+        _mark_not_assessed(
+            result,
+            "Disposition status",
+            f"Disposition check not assessed on free tier: {e}",
+            "TaiwanStockDispositionSecuritiesPeriod",
+        )
     except Exception as e:  # noqa: BLE001
         _fail_closed(
             result,
@@ -141,6 +172,13 @@ def run(
                 result.checks.append(TriageCheck("Trading suspension", True, "Not currently suspended", "TaiwanStockSuspended"))
         else:
             result.checks.append(TriageCheck("Trading suspension", True, "No suspension record", "TaiwanStockSuspended"))
+    except PremiumDatasetRequired as e:
+        _mark_not_assessed(
+            result,
+            "Trading suspension",
+            f"Suspension check not assessed on free tier: {e}",
+            "TaiwanStockSuspended",
+        )
     except Exception as e:  # noqa: BLE001
         _fail_closed(
             result,

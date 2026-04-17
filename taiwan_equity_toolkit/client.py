@@ -86,6 +86,7 @@ class FinMindClient:
         base_url: str = FINMIND_BASE_URL,
         timeout: int = DEFAULT_TIMEOUT_SEC,
         allow_premium: bool = False,
+        premium_tier_confirmed: bool = False,
     ):
         if not token:
             raise ValueError("FinMind token is required.")
@@ -93,11 +94,16 @@ class FinMindClient:
         self._base_url = base_url
         self._timeout = timeout
         self._allow_premium = allow_premium
+        self._premium_tier_confirmed = premium_tier_confirmed
         self._headers = {"Authorization": f"Bearer {token}"}
 
     @property
     def allow_premium(self) -> bool:
         return self._allow_premium
+
+    @property
+    def premium_tier_confirmed(self) -> bool:
+        return self._premium_tier_confirmed
 
     @staticmethod
     def is_premium(dataset: str) -> bool:
@@ -142,17 +148,24 @@ class FinMindClient:
             DataFrame with the raw response rows.
         """
         # Gate premium datasets BEFORE the HTTP call so free-tier pipelines
-        # never silently 400. Callers in V2 catch PremiumDatasetRequired and
-        # surface Status.NOT_ASSESSED with a clear note; the adapter path
-        # (adapters/premium.py) flips allow_premium=True when a Backer/Sponsor
-        # token is active.
-        if is_premium(dataset) and not self._allow_premium:
-            raise PremiumDatasetRequired(
-                f"Dataset '{dataset}' requires FinMind Backer/Sponsor tier. "
-                f"Free-tier pipeline skipping — call via "
-                f"taiwan_equity_toolkit.adapters.premium with a premium token, "
-                f"or set allow_premium=True on the client."
-            )
+        # never silently 400. Two conditions must be true before a premium
+        # request is even attempted:
+        #   1. the caller explicitly enables the premium path; and
+        #   2. the active token has been positively verified as Backer/Sponsor.
+        # This prevents `allow_premium=True` from being treated as proof that
+        # the token is premium-tier.
+        if is_premium(dataset):
+            if not self._premium_tier_confirmed:
+                raise PremiumDatasetRequired(
+                    f"Dataset '{dataset}' requires FinMind Backer/Sponsor tier. "
+                    f"This client is not confirmed premium-tier, so the request "
+                    f"is blocked before the HTTP call."
+                )
+            if not self._allow_premium:
+                raise PremiumDatasetRequired(
+                    f"Dataset '{dataset}' requires FinMind Backer/Sponsor tier "
+                    f"and premium calls are disabled on this client."
+                )
 
         params: dict[str, Any] = {"dataset": dataset}
         if stock_id:
