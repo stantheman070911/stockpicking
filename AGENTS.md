@@ -15,7 +15,7 @@ When asked to run a screen or analyze stocks, execute the full pipeline in order
 ```
 Gate 1 (industry judgment)
   → Gate 2 (company qualitative judgment)
-    → Triage Filter (toolkit: triage.run)
+    → Triage Filter (toolkit: mass_triage.run)
       → Gate 3 Forensic (toolkit: gate3.run)
         → Gate 4 Peer Validation (toolkit: peers.compare)
           → Gate 5 Value Chain (toolkit: value_chain.analyze)
@@ -39,9 +39,9 @@ Tokens are in `Finmind.md`. Use primary first; roll over to backup when quota ex
 
 ### Triage
 ```python
-from taiwan_equity_toolkit.triage import run as triage_run
+from taiwan_equity_toolkit.mass_triage import run as mass_triage_run
 from taiwan_equity_toolkit.config import TriageConfig
-result = triage_run(client, stock_id="2330", cfg=TriageConfig(), intended_position_ntd=5_000_000)
+result = mass_triage_run(client, stock_id="2330", cfg=TriageConfig(), intended_position_ntd=5_000_000)
 if result.failures():
     # stock is rejected — log result.summary() and stop
 ```

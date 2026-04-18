@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from taiwan_equity_toolkit.triage import TriageResult
+from taiwan_equity_toolkit.mass_triage import MassTriageResult
 from taiwan_equity_toolkit.gate3 import Gate3Result
 from taiwan_equity_toolkit.peers import PeerComparison
 
@@ -18,7 +18,7 @@ class FullScreenMemo:
     stock_id: str
     industry_view: str = ""
     company_qualitative: str = ""
-    triage: Optional[TriageResult] = None
+    triage: Optional[MassTriageResult] = None
     gate3: Optional[Gate3Result] = None
     peer_comparison: Optional[PeerComparison] = None
     value_chain_notes: str = ""

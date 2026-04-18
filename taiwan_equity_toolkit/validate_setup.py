@@ -23,7 +23,7 @@ import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from taiwan_equity_toolkit import FinMindClient, triage, gate3
+from taiwan_equity_toolkit import FinMindClient, mass_triage, gate3
 from taiwan_equity_toolkit.config import load_token
 from taiwan_equity_toolkit.states import Status
 from taiwan_equity_toolkit.parsers import (
@@ -192,20 +192,21 @@ def check_parser_ledgers(client: FinMindClient, stock_id: str, status: Validatio
 def check_triage_and_gate3(client: FinMindClient, stock_id: str, status: ValidationStatus) -> None:
     section(f"5. End-to-end Triage + Gate 3 ({stock_id})")
     try:
-        tr = triage.run(client, stock_id=stock_id)
-        say(OK if tr.passed else WARN, f"Triage verdict: {'PASS' if tr.passed else 'FAIL'}")
+        tr = mass_triage.run(client, stock_id=stock_id)
+        triage_passed = tr.status != Status.FAILED
+        say(OK if triage_passed else WARN, f"Triage verdict: {tr.status.value.upper()}")
         for check in tr.checks:
-            if getattr(check, "status", None) == Status.NOT_ASSESSED:
+            if check.status == Status.NOT_ASSESSED:
                 marker = WARN
             else:
-                marker = OK if check.passed else FAIL
+                marker = OK if check.status == Status.PASSED else FAIL
             say(f"    {marker}", f"{check.name}: {check.detail}")
         if tr.notes:
             for note in tr.notes:
                 say(WARN, f"    note: {note}")
                 status.add_warning(f"{stock_id}: {note}")
 
-        if not tr.passed:
+        if not triage_passed:
             failure_names = ", ".join(check.name for check in tr.failures()) or "unknown reason"
             status.add_warning(f"{stock_id}: triage sanity run failed ({failure_names})")
             return

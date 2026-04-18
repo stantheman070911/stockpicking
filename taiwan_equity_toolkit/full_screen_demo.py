@@ -18,7 +18,7 @@ import sys
 
 from taiwan_equity_toolkit import (
     FinMindClient,
-    triage,
+    mass_triage,
     gate3,
     gate65,
     peers,
@@ -26,6 +26,7 @@ from taiwan_equity_toolkit import (
     memo,
 )
 from taiwan_equity_toolkit.config import INDUSTRY_ANCHORS, load_token
+from taiwan_equity_toolkit.states import Status
 
 
 def guess_peers(stock_id: str) -> list[str]:
@@ -67,13 +68,15 @@ def main():
 
     # ── Triage ────────────────────────────────────────────
     print("──── Triage Filter ────")
-    tr = triage.run(client, stock_id=stock_id, intended_position_ntd=intended)
+    tr = mass_triage.run(client, stock_id=stock_id, intended_position_ntd=intended)
     print(tr.summary())
     print()
 
-    if not tr.passed:
+    if tr.status == Status.FAILED:
         print("⛔ Triage failed — screen stops here.")
         sys.exit(0)
+    if tr.status == Status.MANUAL_REVIEW_REQUIRED:
+        print("⚠ Triage requires analyst review — continuing with caution.\n")
 
     # ── Gate 3 ────────────────────────────────────────────
     print("──── Gate 3: Forensic Quality ────")
