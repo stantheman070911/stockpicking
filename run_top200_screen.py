@@ -16,20 +16,17 @@ Pipeline:
 import os
 import sys
 import json
-import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import StringIO
 from typing import Optional
-
-import pandas as pd
-import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 from taiwan_equity_toolkit.client import FinMindClient
-from taiwan_equity_toolkit import triage, gate3, gate65, peers, value_chain
+from taiwan_equity_toolkit import gate3, gate65, mass_triage, peers, universe, value_chain
 from taiwan_equity_toolkit.config import INDUSTRY_ANCHORS
+from taiwan_equity_toolkit.states import Status
+from taiwan_equity_toolkit.universe import build_universe
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,117 +63,28 @@ TRIAGE_WORKERS = 8
 GATE3_WORKERS  = 4
 TODAY = datetime.today()
 RESULTS_PATH = os.path.join(os.path.dirname(__file__), "screen_results.json")
-TAIFEX_TAIEX_URL = "https://www.taifex.com.tw/cht/9/futuresQADetail"
-UNIVERSE_SIZE = 200
-SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "data", "taiex_top200_snapshot.json")
 
 
-def _normalize_stock_ids(raw_values: list) -> list[str]:
-    normalized: list[str] = []
-    for value in raw_values:
-        text = str(value).strip()
-        if text.isdigit() and len(text) == 4:
-            normalized.append(text)
-    return normalized
+class LegacyMassTriageAdapter:
+    """Temporary bridge from V2 MassTriageResult to the legacy triage surface."""
 
+    def __init__(self, result: mass_triage.MassTriageResult):
+        self._result = result
+        self.stock_id = result.stock_id
+        self.status = result.status
+        self.checks = result.checks
+        self.adv_ntd = result.adv_ntd
+        self.notes = list(result.notes)
+        self.passed = result.status != Status.FAILED
 
-def _validate_universe(stock_ids: list[str], expected_size: int = UNIVERSE_SIZE) -> list[str]:
-    normalized = _normalize_stock_ids(stock_ids)
-    if len(normalized) != expected_size:
-        raise ValueError(f"Expected {expected_size} stock IDs, got {len(normalized)}")
-    if len(set(normalized)) != expected_size:
-        raise ValueError("Universe contains duplicate stock IDs")
-    return normalized
+    def failures(self):
+        return self._result.failures()
 
+    def summary(self) -> str:
+        return self._result.summary()
 
-def _parse_taifex_top200_from_table(table: pd.DataFrame, expected_size: int = UNIVERSE_SIZE) -> list[str]:
-    expected_ranks = list(range(1, expected_size + 1))
-    for idx in range(len(table.columns) - 1):
-        ranks = pd.to_numeric(table.iloc[:, idx], errors="coerce")
-        codes = table.iloc[:, idx + 1].astype(str).str.extract(r"(\d{4})", expand=False)
-        candidate = pd.DataFrame({"rank": ranks, "stock_id": codes}).dropna()
-        if candidate.empty:
-            continue
-
-        candidate["rank"] = candidate["rank"].astype(int)
-        top = candidate[candidate["rank"].between(1, expected_size)].sort_values("rank")
-        if top["rank"].tolist() == expected_ranks:
-            return _validate_universe(top["stock_id"].tolist(), expected_size=expected_size)
-
-    raise ValueError("Could not locate a rank/code column pair covering ranks 1-200")
-
-
-def fetch_live_universe(
-    url: str = TAIFEX_TAIEX_URL,
-    timeout_sec: int = 20,
-) -> tuple[list[str], dict[str, str]]:
-    response = requests.get(url, timeout=timeout_sec)
-    response.raise_for_status()
-
-    tables = pd.read_html(StringIO(response.text))
-    last_parse_error: Optional[Exception] = None
-    for table in tables:
-        try:
-            stock_ids = _parse_taifex_top200_from_table(table)
-            return stock_ids, {
-                "universe_source": "live",
-                "universe_as_of": datetime.today().strftime("%Y-%m-%d"),
-                "source_url": url,
-            }
-        except ValueError as exc:
-            last_parse_error = exc
-            continue
-
-    raise RuntimeError(
-        "TAIFEX page fetched successfully, but the top-200 table could not be parsed"
-        + (f": {last_parse_error}" if last_parse_error else "")
-    )
-
-
-def load_snapshot_universe(path: Optional[str] = None) -> tuple[list[str], dict[str, str]]:
-    snapshot_path = path or SNAPSHOT_PATH
-    with open(snapshot_path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-
-    stock_ids = _validate_universe(payload.get("stock_ids", []))
-    as_of = str(payload.get("as_of", "")).strip()
-    if not as_of:
-        raise ValueError("Snapshot is missing `as_of` metadata")
-
-    metadata = {
-        "universe_source": "snapshot_fallback",
-        "universe_as_of": as_of,
-        "source_url": str(payload.get("source_url", "")).strip(),
-    }
-    return stock_ids, metadata
-
-
-def build_universe() -> tuple[list[str], dict[str, str]]:
-    """Return the live TAIFEX top-200 universe, or a checked-in fallback snapshot."""
-    live_error: Optional[Exception] = None
-
-    try:
-        stock_ids, metadata = fetch_live_universe()
-        log.info("Universe built from live TAIFEX source: %d stock IDs", len(stock_ids))
-        return stock_ids, metadata
-    except Exception as exc:  # noqa: BLE001
-        live_error = exc
-        log.warning("Live TAIFEX universe fetch failed: %s", exc)
-
-    try:
-        stock_ids, metadata = load_snapshot_universe()
-        metadata["fallback_reason"] = str(live_error) if live_error else "live fetch unavailable"
-        log.warning(
-            "Universe loaded from snapshot fallback (%s): %d stock IDs",
-            metadata["universe_as_of"],
-            len(stock_ids),
-        )
-        return stock_ids, metadata
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(
-            f"Failed to build the top-200 universe from both live TAIFEX and snapshot sources: "
-            f"live_error={live_error}; snapshot_error={exc}"
-        ) from exc
+    def __getattr__(self, name: str):
+        return getattr(self._result, name)
 
 # ── Gate 1 industry context ───────────────────────────────────────────────────
 # Apr 2026 macro read:
@@ -303,39 +211,37 @@ def apply_gate1(universe: list[str]) -> tuple[list[str], dict[str, dict[str, str
     return passers, rejects
 
 
-def run_triage_single(args):
-    client_token, stock_id = args
-    client = FinMindClient(token=client_token)
-    try:
-        result = triage.run(client, stock_id, intended_position_ntd=INTENDED_POSITION_NTD)
-        return stock_id, result
-    except Exception as e:
-        log.warning(f"Triage error {stock_id}: {e}")
-        return stock_id, None
-
-
 def run_mass_triage(stock_ids: list) -> tuple[list, dict]:
     log.info(f"Triage — {len(stock_ids)} names, {TRIAGE_WORKERS} workers...")
-    triage_results = {}
-    args = [(get_active_token(), sid) for sid in stock_ids]
-    with ThreadPoolExecutor(max_workers=TRIAGE_WORKERS) as executor:
-        futures = {executor.submit(run_triage_single, arg): arg[1] for arg in args}
-        done = 0
-        for future in as_completed(futures):
-            sid = futures[future]
-            try:
-                stock_id, result = future.result()
-                triage_results[stock_id] = result
-                done += 1
-                status = "PASS" if (result and result.passed) else "FAIL"
-                if result and not result.passed:
-                    failures_str = ", ".join(f"{c.name}: {c.detail}" for c in result.failures())
-                    log.warning(f"  {stock_id} TRIAGE FAIL: {failures_str}")
-                
-                if done % 10 == 0 or done <= 5:
-                    log.info(f"  [{done}/{len(stock_ids)}] {stock_id}: {status}")
-            except Exception as e:
-                log.warning(f"Triage future error {sid}: {e}")
+    raw_results = mass_triage.run_all(
+        client_factory=lambda: FinMindClient(token=get_active_token()),
+        stock_ids=stock_ids,
+        intended_position_ntd=INTENDED_POSITION_NTD,
+        max_workers=TRIAGE_WORKERS,
+    )
+    triage_results = {
+        stock_id: LegacyMassTriageAdapter(result)
+        for stock_id, result in raw_results.items()
+    }
+
+    for done, stock_id in enumerate(stock_ids, start=1):
+        result = triage_results.get(stock_id)
+        if not result:
+            log.warning("  %s TRIAGE FAIL: worker returned no result", stock_id)
+            continue
+
+        if result.status == Status.MANUAL_REVIEW_REQUIRED:
+            status = "REVIEW"
+        elif result.passed:
+            status = "PASS"
+        else:
+            status = "FAIL"
+            failures_str = ", ".join(f"{c.name}: {c.detail}" for c in result.failures())
+            if failures_str:
+                log.warning(f"  {stock_id} TRIAGE FAIL: {failures_str}")
+
+        if done % 10 == 0 or done <= 5:
+            log.info(f"  [{done}/{len(stock_ids)}] {stock_id}: {status}")
 
     passers = [sid for sid, r in triage_results.items() if r and r.passed]
     log.info(f"Triage result: {len(passers)} pass / {len(stock_ids) - len(passers)} fail")

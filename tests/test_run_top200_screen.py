@@ -37,9 +37,9 @@ def build_taifex_html(stock_ids: list[str]) -> str:
 
 class RunTop200ScreenTests(unittest.TestCase):
     def test_fetch_live_universe_parses_ranked_top200(self) -> None:
-        stock_ids = [f"{1000 + idx:04d}" for idx in range(screen.UNIVERSE_SIZE)]
-        with patch.object(screen.requests, "get", return_value=FakeResponse(build_taifex_html(stock_ids))):
-            parsed, metadata = screen.fetch_live_universe(url="https://example.com/taifex")
+        stock_ids = [f"{1000 + idx:04d}" for idx in range(screen.universe.UNIVERSE_SIZE)]
+        with patch.object(screen.universe.requests, "get", return_value=FakeResponse(build_taifex_html(stock_ids))):
+            parsed, metadata = screen.universe.fetch_live_universe(url="https://example.com/taifex")
 
         self.assertEqual(parsed, stock_ids)
         self.assertEqual(metadata["universe_source"], "live")
@@ -47,8 +47,8 @@ class RunTop200ScreenTests(unittest.TestCase):
         self.assertTrue(metadata["universe_as_of"])
 
     def test_build_universe_uses_snapshot_fallback_when_live_table_is_invalid(self) -> None:
-        bad_ids = [f"{2000 + idx:04d}" for idx in range(screen.UNIVERSE_SIZE - 1)] + ["2000"]
-        snapshot_ids = [f"{3000 + idx:04d}" for idx in range(screen.UNIVERSE_SIZE)]
+        bad_ids = [f"{2000 + idx:04d}" for idx in range(screen.universe.UNIVERSE_SIZE - 1)] + ["2000"]
+        snapshot_ids = [f"{3000 + idx:04d}" for idx in range(screen.universe.UNIVERSE_SIZE)]
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             snapshot_path = Path(tmp_dir) / "taiex_top200_snapshot.json"
@@ -64,8 +64,8 @@ class RunTop200ScreenTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.object(screen.requests, "get", return_value=FakeResponse(build_taifex_html(bad_ids))):
-                with patch.object(screen, "SNAPSHOT_PATH", str(snapshot_path)):
+            with patch.object(screen.universe.requests, "get", return_value=FakeResponse(build_taifex_html(bad_ids))):
+                with patch.object(screen.universe, "SNAPSHOT_PATH", str(snapshot_path)):
                     parsed, metadata = screen.build_universe()
 
         self.assertEqual(parsed, snapshot_ids)
