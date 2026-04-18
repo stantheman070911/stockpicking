@@ -3,8 +3,7 @@ Top-200 TAIEX Full Funnel Screen (Free-Tier Compatible)
 =========================================================
 Pipeline:
   Step 0: Universe — embedded TAIEX Top ~200 by market cap (verified Apr 2026 order)
-  Step 1: Gate 1+2 — industry directional filter (semi/server/financials favored;
-          shipping/steel/cement excluded)
+  Step 1: Gate 1+2 — optional annotative sector tilt (default disabled)
   Step 2: Mass Triage — parallel, cuts illiquid/suspended/collapsing names
   Step 3: Gate 3 — Forensic Quality (100-pt scorecard) on triage passers
   Step 4: Gate 4 — Peer validation on Gate 3 survivors
@@ -95,7 +94,7 @@ class LegacyMassTriageAdapter:
 # - Domestic: soft consumer spending; financials stable on NIM recovery
 # - Shipping: freight rates normalizing post-Red Sea premium; overcapacity rebuilding
 
-G1_EXCLUSION_BUCKETS = [
+G1_CAUTION_BUCKETS = [
     (
         "Shipping — freight rates normalizing and overcapacity rebuilding",
         {"2603", "2609", "2615", "2618", "2610"},
@@ -130,11 +129,6 @@ G1_EXCLUSION_BUCKETS = [
         },
     ),
 ]
-G1_REJECT_REASONS = {
-    stock_id: reason
-    for reason, stock_ids in G1_EXCLUSION_BUCKETS
-    for stock_id in stock_ids
-}
 
 # Specifically favored (Gate 1 positive) — AI/semi supply chain, financials
 G1_FAVOR_IDS = {
@@ -152,6 +146,7 @@ G1_FAVOR_IDS = {
     "2492",                                                            # Walsin Tech (passive)
     "9910",                                                            # Feng Tay (Nike supplier)
 }
+G1_FAVOR_REASON = "AI/semi/server/financials tailwind"
 
 
 def guess_peers(client: FinMindClient, stock_id: str, max_peers: int = 3) -> list[str]:
@@ -193,22 +188,42 @@ def _evaluate_gate4_comparison(comparison) -> tuple[bool, str]:
     return True, "Validated on populated peer metrics; top-half on " + ", ".join(top_half)
 
 
-def apply_gate1(universe: list[str]) -> tuple[list[str], dict[str, dict[str, str]]]:
-    """Gate 1 — deterministic directional industry filter with auditable rejects."""
-    passers: list[str] = []
-    rejects: dict[str, dict[str, str]] = {}
-    for stock_id in universe:
-        reason = G1_REJECT_REASONS.get(stock_id)
-        if reason:
-            rejects[stock_id] = {
-                "gate": "Gate 1",
-                "reason": reason,
-            }
-            continue
-        passers.append(stock_id)
+def build_gate1_tilt(enabled: bool = False) -> universe.SectorTiltConfig:
+    """Legacy Gate 1 bias, now exposed only as an annotative tilt."""
+    return universe.SectorTiltConfig(
+        enabled=enabled,
+        caution_buckets={
+            reason: sorted(stock_ids)
+            for reason, stock_ids in G1_CAUTION_BUCKETS
+        },
+        favor_ids=sorted(G1_FAVOR_IDS),
+        favor_reason=G1_FAVOR_REASON,
+    )
 
-    log.info("Gate 1: %d pass, %d excluded", len(passers), len(rejects))
-    return passers, rejects
+
+def apply_gate1(
+    stock_ids: list[str],
+    tilt: Optional[universe.SectorTiltConfig] = None,
+) -> tuple[list[str], dict[str, dict[str, str]]]:
+    """Gate 1 — annotative sector tilt, never a hard exclusion in Phase 2."""
+    gate1_tilt = tilt or build_gate1_tilt(enabled=False)
+    passers, tilt_notes = universe.apply_sector_tilt(stock_ids, gate1_tilt)
+
+    caution_count = sum(1 for note in tilt_notes.values() if note.get("tilt") == "caution")
+    favor_count = sum(1 for note in tilt_notes.values() if note.get("tilt") == "favor")
+    if gate1_tilt.enabled:
+        log.info(
+            "Gate 1 tilt: %d candidates proceed unchanged (%d caution, %d favor)",
+            len(passers),
+            caution_count,
+            favor_count,
+        )
+    else:
+        log.info("Gate 1: sector tilt disabled; %d candidates proceed unchanged", len(passers))
+
+    # Keep the legacy top-level JSON key stable through Phase 8. The key stays,
+    # but Gate 1 no longer emits hard rejects in the Phase 2 architecture.
+    return passers, {}
 
 
 def run_mass_triage(stock_ids: list) -> tuple[list, dict]:

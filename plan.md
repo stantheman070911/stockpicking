@@ -293,13 +293,13 @@ Each phase below specifies: **goal**, **tasks** (checkbox steps), **files touche
 **Dependencies:** None.
 
 **Tasks:**
-- [ ] **0.1** Create `taiwan_equity_toolkit/states.py` with `Status` enum, `StatusedResult` base dataclass, and helper `combine_statuses(...)` (worst-case merge).
-- [ ] **0.2** Extend `taiwan_equity_toolkit/config.py`: add `FreeTierPolicy`, `WorkstreamBThresholds` (red-flag screen cutoffs), `WorkstreamBScoreWeights` (replaces `Gate3Weights` — to be deleted in Phase 5), `WorkstreamCConfig`, `SizingCaps` (vol cap %, liquidity cap % of ADV, correlation cap, suggested band bounds), `SellDisciplineArchetypes` (Assassin/Hunter/Connoisseur defaults), `MacroContextConfig`, `PREMIUM_DATASETS` frozen set. **Do not yet remove** `Gate3Weights` / `Gate3Thresholds` / `Gate65Config` / `TriageConfig` — they stay until their consumers are deleted in later phases.
-- [ ] **0.3** Update `taiwan_equity_toolkit/client.py`: add `is_premium(dataset_name: str) -> bool` using `PREMIUM_DATASETS`; change `get()` to raise `PremiumDatasetRequired` (new exception, subclass of `FinMindError`) **before** the HTTP call if the dataset is premium and the active token is free-tier. Consumers catch and emit `Status.NOT_ASSESSED`. (Silent HTTP 400 failures stop here.)
-- [ ] **0.4** Write `tests/test_states.py` covering enum values, `combine_statuses` precedence (failed > manual_review_required > not_assessed > passed).
-- [ ] **0.5** Write `tests/test_client_premium_detection.py` covering: premium dataset raises `PremiumDatasetRequired`; free-tier dataset passes through; `is_premium` correctly identifies all 10+ known premium datasets.
-- [ ] **0.6** Run `python -m pytest tests/test_states.py tests/test_client_premium_detection.py -v`. Expected: all new tests pass; existing tests still pass.
-- [ ] **0.7** Commit: `feat: add Status vocabulary and premium-dataset detection (Phase 0)`.
+- [x] **0.1** Create `taiwan_equity_toolkit/states.py` with `Status` enum, `StatusedResult` base dataclass, and helper `combine_statuses(...)` (worst-case merge).
+- [x] **0.2** Extend `taiwan_equity_toolkit/config.py`: add `FreeTierPolicy`, `WorkstreamBThresholds` (red-flag screen cutoffs), `WorkstreamBScoreWeights` (replaces `Gate3Weights` — to be deleted in Phase 5), `WorkstreamCConfig`, `SizingCaps` (vol cap %, liquidity cap % of ADV, correlation cap, suggested band bounds), `SellDisciplineArchetypes` (Assassin/Hunter/Connoisseur defaults), `MacroContextConfig`, `PREMIUM_DATASETS` frozen set. **Do not yet remove** `Gate3Weights` / `Gate3Thresholds` / `Gate65Config` / `TriageConfig` — they stay until their consumers are deleted in later phases.
+- [x] **0.3** Update `taiwan_equity_toolkit/client.py`: add `is_premium(dataset_name: str) -> bool` using `PREMIUM_DATASETS`; change `get()` to raise `PremiumDatasetRequired` (new exception, subclass of `FinMindError`) **before** the HTTP call if the dataset is premium and the active token is free-tier. Consumers catch and emit `Status.NOT_ASSESSED`. (Silent HTTP 400 failures stop here.)
+- [x] **0.4** Write `tests/test_states.py` covering enum values, `combine_statuses` precedence (failed > manual_review_required > not_assessed > passed).
+- [x] **0.5** Write `tests/test_client_premium_detection.py` covering: premium dataset raises `PremiumDatasetRequired`; free-tier dataset passes through; `is_premium` correctly identifies all 10+ known premium datasets.
+- [x] **0.6** Run `python -m pytest tests/test_states.py tests/test_client_premium_detection.py -v`. Expected: all new tests pass; existing tests still pass.
+- [x] **0.7** Commit: `feat: add Status vocabulary and premium-dataset detection (Phase 0)`.
 
 **Files:** `taiwan_equity_toolkit/states.py` (NEW), `taiwan_equity_toolkit/config.py` (EDIT), `taiwan_equity_toolkit/client.py` (EDIT), `tests/test_states.py` (NEW), `tests/test_client_premium_detection.py` (NEW).
 
@@ -321,11 +321,11 @@ Each phase below specifies: **goal**, **tasks** (checkbox steps), **files touche
 **Dependencies:** Phase 0.
 
 **Tasks:**
-- [ ] **1.1** Create `data/taiwan_supply_chain.yaml`. Content: hierarchical chain map derived from existing `INDUSTRY_ANCHORS` in `config.py` plus the semiconductor supply-chain anchors already referenced in `Taiwan_Equity_Agent_System_Prompt.md` line 190 (foundry 2330/2303/6770 → IDM → OSAT 2308/3711/6239/2449 → IC design 2454/3034/3443 → equipment → ODM/OEM 2317/2382/3231/2324; plus financials 2881/2882/2884/2886 and discretionary sectors). Shape: `{cluster: {sub_cluster: [stock_id]}}` with bidirectional `upstream`/`downstream` arrows per cluster. Ship with `as_of` date field. Exact content below in Deliverable.
-- [ ] **1.2** Create `data/taiwan_governance_redflags.yaml` — keyword patterns for the News scan in Workstream B. Include Rebar-style / Procomp-style precedent keywords: 質押 (pledging), 背書保證 (cross-affiliate guarantee), 關係人交易 (related-party), 更換會計師 (auditor change), 重編 (restatement), 繼續經營 (going concern), 解散 (dissolution), 停止交易 (trading halt), 聲請重整 (reorganization), 掏空 (embezzlement), 內線交易 (insider trading), 財報不實 (financial-statement fraud). Include English fallbacks.
-- [ ] **1.3** Create `data/templates/` directory with empty (but structured) markdown templates for each memo field. Files: `variant_perception.md`, `scenario_ev.md`, `position_sizing.md`, `catalyst_path.md`, `invalidation.md`, `pre_mortem.md`, `decision_journal.md`, `post_mortem.md`, `sell_discipline.md`, `management_forensic_checklist.md`, `scuttlebutt_call_log.md`, `red_flag_screen.md`, `cb_manual_review.md`. Each template must include: purpose header, required fields (marked `<<REQUIRED>>`), guidance, example. `variant_perception.md` must explicitly require: market expectation, analyst thesis, error type {behavioral / analytical / informational / technical}, evidence gap.
-- [ ] **1.4** Write `tests/test_curated_data.py`: YAML files parse; every `INDUSTRY_ANCHORS` stock appears somewhere in `taiwan_supply_chain.yaml`; every template has `<<REQUIRED>>` markers parseable; governance keyword YAML has ≥ 12 patterns.
-- [ ] **1.5** Run tests; commit: `feat: add curated supply-chain, governance keywords, memo templates (Phase 1)`.
+- [x] **1.1** Create `data/taiwan_supply_chain.yaml`. Content: hierarchical chain map derived from existing `INDUSTRY_ANCHORS` in `config.py` plus the semiconductor supply-chain anchors already referenced in `Taiwan_Equity_Agent_System_Prompt.md` line 190 (foundry 2330/2303/6770 → IDM → OSAT 2308/3711/6239/2449 → IC design 2454/3034/3443 → equipment → ODM/OEM 2317/2382/3231/2324; plus financials 2881/2882/2884/2886 and discretionary sectors). Shape: `{cluster: {sub_cluster: [stock_id]}}` with bidirectional `upstream`/`downstream` arrows per cluster. Ship with `as_of` date field. Exact content below in Deliverable.
+- [x] **1.2** Create `data/taiwan_governance_redflags.yaml` — keyword patterns for the News scan in Workstream B. Include Rebar-style / Procomp-style precedent keywords: 質押 (pledging), 背書保證 (cross-affiliate guarantee), 關係人交易 (related-party), 更換會計師 (auditor change), 重編 (restatement), 繼續經營 (going concern), 解散 (dissolution), 停止交易 (trading halt), 聲請重整 (reorganization), 掏空 (embezzlement), 內線交易 (insider trading), 財報不實 (financial-statement fraud). Include English fallbacks.
+- [x] **1.3** Create `data/templates/` directory with empty (but structured) markdown templates for each memo field. Files: `variant_perception.md`, `scenario_ev.md`, `position_sizing.md`, `catalyst_path.md`, `invalidation.md`, `pre_mortem.md`, `decision_journal.md`, `post_mortem.md`, `sell_discipline.md`, `management_forensic_checklist.md`, `scuttlebutt_call_log.md`, `red_flag_screen.md`, `cb_manual_review.md`. Each template must include: purpose header, required fields (marked `<<REQUIRED>>`), guidance, example. `variant_perception.md` must explicitly require: market expectation, analyst thesis, error type {behavioral / analytical / informational / technical}, evidence gap.
+- [x] **1.4** Write `tests/test_curated_data.py`: YAML files parse; every `INDUSTRY_ANCHORS` stock appears somewhere in `taiwan_supply_chain.yaml`; every template has `<<REQUIRED>>` markers parseable; governance keyword YAML has ≥ 12 patterns.
+- [x] **1.5** Run tests; commit: `feat: add curated supply-chain, governance keywords, memo templates (Phase 1)`.
 
 **Files:** `data/taiwan_supply_chain.yaml` (NEW), `data/taiwan_governance_redflags.yaml` (NEW), `data/templates/*.md` (NEW), `tests/test_curated_data.py` (NEW).
 
@@ -347,8 +347,8 @@ Each phase below specifies: **goal**, **tasks** (checkbox steps), **files touche
 **Dependencies:** Phase 0 (states), Phase 1 (YAML is nice-to-have but not required here).
 
 **Tasks:**
-- [ ] **2.1** Create `taiwan_equity_toolkit/universe.py`. Move `fetch_live_universe()`, `load_snapshot_universe()`, `_parse_taifex_top200_from_table()`, `_validate_universe()`, `_normalize_stock_ids()` from `run_top200_screen.py`. Add `apply_sector_tilt(universe, tilt_config) -> tuple[list, dict]` that applies the OLD Gate 1 exclusion buckets + favor IDs **only if explicitly enabled in config** — default is no tilt (pure passthrough). Returns `(tilted_universe, tilt_notes)` where `tilt_notes` is annotative, not a rejection.
-- [ ] **2.2** Create `taiwan_equity_toolkit/mass_triage.py`. Compress the 17 quick-disqualify items into the 8 merged buckets from report §7.6:
+- [x] **2.1** Create `taiwan_equity_toolkit/universe.py`. Move `fetch_live_universe()`, `load_snapshot_universe()`, `_parse_taifex_top200_from_table()`, `_validate_universe()`, `_normalize_stock_ids()` from `run_top200_screen.py`. Add `apply_sector_tilt(universe, tilt_config) -> tuple[list, dict]` that applies the OLD Gate 1 exclusion buckets + favor IDs **only if explicitly enabled in config** — default is no tilt (pure passthrough). Returns `(tilted_universe, tilt_notes)` where `tilt_notes` is annotative, not a rejection.
+- [x] **2.2** Create `taiwan_equity_toolkit/mass_triage.py`. Compress the 17 quick-disqualify items into the 8 merged buckets from report §7.6:
     1. **Tradability** = liquidity (ADV ≥ NT$50M) + free float + position-vs-ADV cap. Free-tier: `TaiwanStockPrice`.
     2. **Active trading** = not delisted + not on disposition. Uses `TaiwanStockDelisting` (free). `TaiwanStockDispositionSecuritiesPeriod` is premium → falls back to `Status.NOT_ASSESSED` with warning note, **does not hard-fail**.
     3. **Survival risk** = monthly revenue YoY > −30% (unless short thesis) + no persistent cash burn proxy. Free-tier.
@@ -359,13 +359,13 @@ Each phase below specifies: **goal**, **tasks** (checkbox steps), **files touche
     8. **Single-name exposure prep** = intended position ≤ 10% of ADV (retained from v1).
     
     Emit `MassTriageResult(stock_id, status, checks[], adv_ntd, notes[])`. A stock is `failed` only if at least one automatable check hard-fails. Premium-dependent checks that can't run emit `not_assessed` at the check level but do **not** cause the stock to fail overall.
-- [ ] **2.3** Write `tests/test_universe.py` and `tests/test_mass_triage.py` covering each of the 8 checks + the premium-fallback behavior (disposition check → `not_assessed`, stock still passes).
-- [ ] **2.4** Run `pytest tests/test_universe.py tests/test_mass_triage.py -v`.
-- [ ] **2.5** Commit: `feat: universe and mass_triage (Phase 2.a)`.
-- [ ] **2.6** Update `run_top200_screen.py` to import universe/mass_triage instead of the old `build_universe()` + `run_mass_triage()` locals. Keep old code paths around temporarily (wired to new modules) to avoid breaking the orchestrator.
-- [ ] **2.7** Run existing test suite. Expect: `test_run_top200_screen.py` still passes with new mass_triage wiring. Fix any breakage.
-- [ ] **2.8** DELETE `taiwan_equity_toolkit/triage.py` and `tests/test_triage.py`. Grep the repo for any lingering imports; the only expected importer is the now-updated `run_top200_screen.py`.
-- [ ] **2.9** Run full test suite. Commit: `refactor: delete legacy triage module (Phase 2.b)`.
+- [x] **2.3** Write `tests/test_universe.py` and `tests/test_mass_triage.py` covering each of the 8 checks + the premium-fallback behavior (disposition check → `not_assessed`, stock still passes).
+- [x] **2.4** Run `pytest tests/test_universe.py tests/test_mass_triage.py -v`.
+- [x] **2.5** Commit: `feat: universe and mass_triage (Phase 2.a)`.
+- [x] **2.6** Update `run_top200_screen.py` to import universe/mass_triage instead of the old `build_universe()` + `run_mass_triage()` locals. Keep old code paths around temporarily (wired to new modules) to avoid breaking the orchestrator.
+- [x] **2.7** Run existing test suite. Expect: `test_run_top200_screen.py` still passes with new mass_triage wiring. Fix any breakage.
+- [x] **2.8** DELETE `taiwan_equity_toolkit/triage.py` and `tests/test_triage.py`. Grep the repo for any lingering imports; the only expected importer is the now-updated `run_top200_screen.py`.
+- [x] **2.9** Run full test suite. Commit: `refactor: delete legacy triage module (Phase 2.b)`.
 
 **Files:** `taiwan_equity_toolkit/universe.py` (NEW), `taiwan_equity_toolkit/mass_triage.py` (NEW), `run_top200_screen.py` (EDIT), `tests/test_universe.py` (NEW), `tests/test_mass_triage.py` (NEW), `taiwan_equity_toolkit/triage.py` (DELETE), `tests/test_triage.py` (DELETE).
 

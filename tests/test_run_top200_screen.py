@@ -73,13 +73,21 @@ class RunTop200ScreenTests(unittest.TestCase):
         self.assertEqual(metadata["universe_as_of"], "2026-04-17")
         self.assertIn("duplicate", metadata["fallback_reason"].lower())
 
-    def test_apply_gate1_returns_reasoned_rejects(self) -> None:
+    def test_apply_gate1_defaults_to_pass_through_and_no_rejects(self) -> None:
         passers, rejects = screen.apply_gate1(["2603", "2330", "2498"])
 
-        self.assertEqual(passers, ["2330"])
-        self.assertEqual(rejects["2603"]["gate"], "Gate 1")
-        self.assertIn("Shipping", rejects["2603"]["reason"])
-        self.assertIn("Legacy consumer electronics", rejects["2498"]["reason"])
+        self.assertEqual(passers, ["2603", "2330", "2498"])
+        self.assertEqual(rejects, {})
+
+    def test_build_gate1_tilt_can_enable_legacy_bias_without_excluding(self) -> None:
+        tilt = screen.build_gate1_tilt(enabled=True)
+
+        passers, tilt_notes = screen.universe.apply_sector_tilt(["2603", "2330", "2498"], tilt)
+
+        self.assertEqual(passers, ["2603", "2330", "2498"])
+        self.assertEqual(tilt_notes["2603"]["tilt"], "caution")
+        self.assertIn("Shipping", tilt_notes["2603"]["reason"])
+        self.assertEqual(tilt_notes["2330"]["tilt"], "favor")
 
     def test_runner_uses_total_score_and_conditional_watchlist_contract(self) -> None:
         g3_results = {
@@ -178,7 +186,7 @@ class RunTop200ScreenTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("usable upstream", result["reason"])
 
-    def test_main_writes_universe_provenance_and_structured_gate1_rejects(self) -> None:
+    def test_main_keeps_gate1_key_but_gate1_no_longer_rejects(self) -> None:
         class DummyClient:
             def __init__(self, token: str):
                 self.token = token
@@ -212,8 +220,8 @@ class RunTop200ScreenTests(unittest.TestCase):
                         screen,
                         "apply_gate1",
                         return_value=(
-                            ["2330"],
-                            {"2603": {"gate": "Gate 1", "reason": "Shipping — freight rates normalizing"}},
+                            ["2330", "2603"],
+                            {},
                         ),
                     ):
                         with patch.object(screen, "run_mass_triage", return_value=(["2330"], {"2330": triage_result})):
@@ -228,8 +236,8 @@ class RunTop200ScreenTests(unittest.TestCase):
             self.assertEqual(final[0]["gate3_score"], 88.0)
             self.assertEqual(payload["universe_source"], "snapshot_fallback")
             self.assertEqual(payload["universe_as_of"], "2026-04-17")
-            self.assertEqual(payload["gate1_rejects"]["2603"]["gate"], "Gate 1")
-            self.assertIn("reason", payload["gate1_rejects"]["2603"])
+            self.assertEqual(payload["gate1_rejects"], {})
+            self.assertEqual(payload["funnel"]["gate1_pass"], 2)
             self.assertEqual(payload["funnel"]["gate4_pass"], 1)
             self.assertEqual(payload["funnel"]["gate5_pass"], 1)
             gate4_mock.assert_called_once_with(["2330"])
