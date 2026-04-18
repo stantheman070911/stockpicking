@@ -6,8 +6,7 @@ Pipeline:
   Step 1: Gate 1+2 — optional annotative sector tilt (default disabled)
   Step 2: Mass Triage — parallel, cuts illiquid/suspended/collapsing names
   Step 3: Gate 3 — Forensic Quality (100-pt scorecard) on triage passers
-  Step 4: Gate 4 — Peer validation on Gate 3 survivors
-  Step 5: Gate 5 — Value-chain positioning on Gate 4 survivors
+  Step 4: Workstream A — industry / macro context on Gate 3 survivors
   Step 6: Gate 6.5 — Entry Architecture (valuation, vol, liquidity)
   Output: Ranked final list → top 10 with Gate 7 thesis stubs
 """
@@ -22,8 +21,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(__file__))
 from taiwan_equity_toolkit.client import FinMindClient
-from taiwan_equity_toolkit import gate3, gate65, mass_triage, peers, universe, value_chain
-from taiwan_equity_toolkit.config import INDUSTRY_ANCHORS
+from taiwan_equity_toolkit import gate3, gate65, mass_triage, universe, workstream_a
 from taiwan_equity_toolkit.states import Status
 from taiwan_equity_toolkit.universe import build_universe
 
@@ -147,45 +145,6 @@ G1_FAVOR_IDS = {
     "9910",                                                            # Feng Tay (Nike supplier)
 }
 G1_FAVOR_REASON = "AI/semi/server/financials tailwind"
-
-
-def guess_peers(client: FinMindClient, stock_id: str, max_peers: int = 3) -> list[str]:
-    """Best-effort peer list from seeded anchors, then industry-chain peers."""
-    for members in INDUSTRY_ANCHORS.values():
-        if stock_id in members:
-            return [member for member in members if member != stock_id][:max_peers]
-
-    chain_position = value_chain.locate(client, stock_id)
-    return [member for member in chain_position.peers_in_chain if member != stock_id][:max_peers]
-
-
-def _evaluate_gate4_comparison(comparison) -> tuple[bool, str]:
-    rankings = getattr(comparison, "candidate_rankings", {}) or {}
-    populated = {
-        metric: (rank, total)
-        for metric, (rank, total) in rankings.items()
-        if rank and total and total >= 2
-    }
-    if len(populated) < 2:
-        return False, "Insufficient populated peer metrics for Gate 4"
-
-    top_half = [
-        metric
-        for metric, (rank, total) in populated.items()
-        if rank <= ((total + 1) // 2)
-    ]
-    bottom_ranked = [
-        metric
-        for metric, (rank, total) in populated.items()
-        if rank == total
-    ]
-
-    if not top_half:
-        return False, f"No top-half peer rankings across {len(populated)} populated metric(s)"
-    if len(bottom_ranked) >= 2:
-        return False, "Bottom-ranked on multiple peer metrics: " + ", ".join(bottom_ranked)
-
-    return True, "Validated on populated peer metrics; top-half on " + ", ".join(top_half)
 
 
 def build_gate1_tilt(enabled: bool = False) -> universe.SectorTiltConfig:
@@ -358,117 +317,30 @@ def run_gate65_batch(stock_ids: list) -> tuple[list, dict]:
     return passers, g65_results
 
 
-def run_gate4_single(args):
-    client_token, stock_id = args
-    client = FinMindClient(token=client_token)
-    try:
-        peer_ids = guess_peers(client, stock_id)
-        if not peer_ids:
-            return stock_id, {
-                "passed": False,
-                "peer_ids": [],
-                "comparison": None,
-                "reason": "No peer set identified for Gate 4",
-            }
+def run_workstream_a_batch(stock_ids: list[str]) -> dict[str, workstream_a.WorkstreamAResult]:
+    """Run Workstream A (Industry/Macro) across the Gate-3 passer list.
 
-        comparison = peers.compare(client, candidate=stock_id, peers=peer_ids)
-        passed, reason = _evaluate_gate4_comparison(comparison)
-        return stock_id, {
-            "passed": passed,
-            "peer_ids": peer_ids,
-            "comparison": comparison,
-            "reason": reason,
-        }
-    except Exception as e:
-        log.warning(f"Gate 4 error {stock_id}: {e}")
-        return stock_id, {
-            "passed": False,
-            "peer_ids": [],
-            "comparison": None,
-            "reason": f"Gate 4 errored: {e}",
-        }
-
-
-def run_gate4_batch(stock_ids: list[str]) -> tuple[list[str], dict[str, dict]]:
-    log.info(f"Gate 4 — Peer Validation on {len(stock_ids)} names...")
-    gate4_results: dict[str, dict] = {}
-    args = [(get_active_token(), sid) for sid in stock_ids]
-    with ThreadPoolExecutor(max_workers=min(4, max(1, len(stock_ids)))) as executor:
-        futures = {executor.submit(run_gate4_single, arg): arg[1] for arg in args}
-        for future in as_completed(futures):
-            sid = futures[future]
-            try:
-                stock_id, result = future.result()
-                gate4_results[stock_id] = result
-                status = "PASS" if result["passed"] else "FAIL"
-                log.info(
-                    "  Gate 4 %s: %s (%s)",
-                    stock_id,
-                    status,
-                    result["reason"],
-                )
-            except Exception as e:
-                log.warning(f"Gate 4 future error {sid}: {e}")
-
-    passers = [sid for sid, result in gate4_results.items() if result.get("passed")]
-    log.info(f"Gate 4: {len(passers)} pass, {len(stock_ids) - len(passers)} stop")
-    return passers, gate4_results
-
-
-def run_gate5_single(args):
-    client_token, stock_id = args
-    client = FinMindClient(token=client_token)
-    try:
-        report = value_chain.analyze(client, stock_id)
-        has_position = bool(report.position.industries or report.position.sub_industries)
-        usable_signal_count = sum(
-            1 for signal in report.upstream_signals if value_chain.has_usable_signal(signal)
+    Workstream A is informational in this phase — the batch returns annotations
+    for every stock but does NOT prune `ranked_ids`. Downstream (Gate 6.5)
+    continues on the same list.
+    """
+    log.info(f"Workstream A — Industry/Macro on {len(stock_ids)} names...")
+    results = workstream_a.run_all(
+        client_factory=lambda: FinMindClient(token=get_active_token()),
+        stock_ids=stock_ids,
+        max_workers=min(4, max(1, len(stock_ids))),
+    )
+    for sid, res in results.items():
+        cluster = res.cluster or "unclustered"
+        peer_count = res.peer_alignment.usable_peer_count
+        log.info(
+            "  Workstream A %s: %s | cluster=%s | peers=%d",
+            sid,
+            res.status.value.upper(),
+            cluster,
+            peer_count,
         )
-        passed = has_position and usable_signal_count > 0
-        if passed:
-            reason = f"Value chain mapped with {usable_signal_count} usable upstream signal(s)"
-        elif has_position:
-            reason = "Value-chain position mapped, but usable upstream/downstream signals were unavailable"
-        else:
-            reason = "No value-chain context available"
-        return stock_id, {
-            "passed": passed,
-            "report": report,
-            "reason": reason,
-        }
-    except Exception as e:
-        log.warning(f"Gate 5 error {stock_id}: {e}")
-        return stock_id, {
-            "passed": False,
-            "report": None,
-            "reason": f"Gate 5 errored: {e}",
-        }
-
-
-def run_gate5_batch(stock_ids: list[str]) -> tuple[list[str], dict[str, dict]]:
-    log.info(f"Gate 5 — Value Chain on {len(stock_ids)} names...")
-    gate5_results: dict[str, dict] = {}
-    args = [(get_active_token(), sid) for sid in stock_ids]
-    with ThreadPoolExecutor(max_workers=min(4, max(1, len(stock_ids)))) as executor:
-        futures = {executor.submit(run_gate5_single, arg): arg[1] for arg in args}
-        for future in as_completed(futures):
-            sid = futures[future]
-            try:
-                stock_id, result = future.result()
-                gate5_results[stock_id] = result
-                status = "PASS" if result["passed"] else "FAIL"
-                log.info(
-                    "  Gate 5 %s: %s (%s)",
-                    stock_id,
-                    status,
-                    result["reason"],
-                )
-            except Exception as e:
-                log.warning(f"Gate 5 future error {sid}: {e}")
-
-    passers = [sid for sid, result in gate5_results.items() if result.get("passed")]
-    log.info(f"Gate 5: {len(passers)} pass, {len(stock_ids) - len(passers)} stop")
-    return passers, gate5_results
+    return results
 
 
 def compile_final(
@@ -476,8 +348,7 @@ def compile_final(
     g3_results: dict,
     g65_results: dict,
     triage_results: dict,
-    gate4_results: Optional[dict] = None,
-    gate5_results: Optional[dict] = None,
+    workstream_a_results: Optional[dict] = None,
     include_rejected: bool = False,
 ) -> list[dict]:
     verdict_weight = {
@@ -495,8 +366,10 @@ def compile_final(
         g65_verdict = getattr(g65, "verdict", "N/A") if g65 else "N/A"
         if not include_rejected and g65_verdict == "Reject for Book Fit":
             continue
-        gate4 = (gate4_results or {}).get(sid, {})
-        gate5 = (gate5_results or {}).get(sid, {})
+        wa = (workstream_a_results or {}).get(sid)
+        wa_status = wa.status.value if wa is not None else "not_assessed"
+        wa_cluster = wa.cluster if wa is not None else None
+        wa_peer_count = wa.peer_alignment.usable_peer_count if wa is not None else 0
         # Favor bias for G1 favorites
         g1_bonus = 5 if sid in G1_FAVOR_IDS else 0
         records.append({
@@ -507,9 +380,9 @@ def compile_final(
             "gate65_verdict": g65_verdict,
             "adv_ntd": getattr(tr, "adv_ntd", None) if tr else None,
             "g1_favored": sid in G1_FAVOR_IDS,
-            "gate4_passed": gate4.get("passed"),
-            "gate4_peer_count": len(gate4.get("peer_ids", [])),
-            "gate5_passed": gate5.get("passed"),
+            "workstream_a_status": wa_status,
+            "workstream_a_cluster": wa_cluster,
+            "workstream_a_peer_count": wa_peer_count,
             "composite": g3_score + verdict_weight.get(g65_verdict, 0) + g1_bonus,
         })
     records.sort(key=lambda x: x["composite"], reverse=True)
@@ -567,22 +440,18 @@ def main():
     _, g3_conditional = classify_gate3_results(g3_results)
     ranked_ids = list(g3_passers)
 
-    # ── Step 4: Gate 6.5 ───────────────────────────────────────────────────
-    gate4_results: dict[str, dict] = {}
-    gate5_results: dict[str, dict] = {}
+    # ── Step 4: Workstream A (informational) + Gate 6.5 ───────────────────
+    workstream_a_results: dict[str, workstream_a.WorkstreamAResult] = {}
     if ranked_ids:
-        ranked_ids, gate4_results = run_gate4_batch(ranked_ids)
-        if ranked_ids:
-            ranked_ids, gate5_results = run_gate5_batch(ranked_ids)
+        workstream_a_results = run_workstream_a_batch(ranked_ids)
         gate65_passers, g65_results = run_gate65_batch(ranked_ids) if ranked_ids else ([], {})
         ranked_ids = gate65_passers
         ranking_label = "Gate 6.5 Passes"
     else:
-        log.warning("No Gate 3 passes — advancing Conditional Watchlist names through Gates 4, 5, and 6.5")
+        log.warning("No Gate 3 passes — advancing Conditional Watchlist names through Workstream A and Gate 6.5")
         ranked_ids = list(g3_conditional)
-        ranked_ids, gate4_results = run_gate4_batch(ranked_ids)
         if ranked_ids:
-            ranked_ids, gate5_results = run_gate5_batch(ranked_ids)
+            workstream_a_results = run_workstream_a_batch(ranked_ids)
         gate65_passers, g65_results = run_gate65_batch(ranked_ids) if ranked_ids else ([], {})
         ranked_ids = gate65_passers
         ranking_label = "Gate 3 Conditional Watchlist"
@@ -593,8 +462,7 @@ def main():
         g3_results,
         g65_results,
         triage_results,
-        gate4_results=gate4_results,
-        gate5_results=gate5_results,
+        workstream_a_results=workstream_a_results,
     )
 
     # ── Output ─────────────────────────────────────────────────────────────
@@ -615,6 +483,9 @@ def main():
         log.info(f"  #{i:2d} {rec['stock_id']} | G3:{rec['gate3_score']:.1f} | {rec['gate65_verdict']}")
 
     # Save
+    workstream_a_pass_count = sum(
+        1 for r in workstream_a_results.values() if r.status == Status.PASSED
+    )
     output = {
         "run_date": TODAY.strftime("%Y-%m-%d %H:%M"),
         "universe_source": universe_meta["universe_source"],
@@ -625,8 +496,7 @@ def main():
             "triage_pass": len(triage_passers),
             "gate3_pass": len(g3_passers),
             "gate3_conditional": len(g3_conditional),
-            "gate4_pass": len([sid for sid, result in gate4_results.items() if result.get("passed")]),
-            "gate5_pass": len([sid for sid, result in gate5_results.items() if result.get("passed")]),
+            "workstream_a_pass": workstream_a_pass_count,
             "gate65_pass": len(ranked_ids),
             "final": len(final),
         },
@@ -646,20 +516,15 @@ def main():
             }
             for sid, r in g3_results.items() if r
         },
-        "gate4_failures": {
+        "workstream_a_notes": {
             sid: {
-                "reason": result.get("reason"),
-                "peer_ids": result.get("peer_ids", []),
+                "status": res.status.value,
+                "cluster": res.cluster,
+                "node": res.chain_position.node,
+                "peer_count": res.peer_alignment.usable_peer_count,
+                "notes": list(res.notes),
             }
-            for sid, result in gate4_results.items()
-            if not result.get("passed")
-        },
-        "gate5_failures": {
-            sid: {
-                "reason": result.get("reason"),
-            }
-            for sid, result in gate5_results.items()
-            if not result.get("passed")
+            for sid, res in workstream_a_results.items()
         },
     }
     with open(RESULTS_PATH, "w", encoding="utf-8") as f:

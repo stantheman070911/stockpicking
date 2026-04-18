@@ -10,7 +10,6 @@ from typing import Optional
 
 from taiwan_equity_toolkit.mass_triage import MassTriageResult
 from taiwan_equity_toolkit.gate3 import Gate3Result
-from taiwan_equity_toolkit.peers import PeerComparison
 
 
 @dataclass
@@ -20,7 +19,8 @@ class FullScreenMemo:
     company_qualitative: str = ""
     triage: Optional[MassTriageResult] = None
     gate3: Optional[Gate3Result] = None
-    peer_comparison: Optional[PeerComparison] = None
+    peer_comparison: Optional[object] = None
+    workstream_a_notes: str = ""
     value_chain_notes: str = ""
     portfolio_fit_notes: str = ""
     entry_architecture_notes: str = ""
@@ -50,7 +50,9 @@ class FullScreenMemo:
         if self.gate3:
             lines += ["## Gate 3 — Forensic Quality", self.gate3.memo(), ""]
 
-        if self.peer_comparison:
+        if self.workstream_a_notes:
+            lines += ["## Workstream A — Industry / Macro", self.workstream_a_notes, ""]
+        elif self.peer_comparison:
             lines += ["## Gate 4 — Cross-Source Validation", self.peer_comparison.summary(), ""]
 
         if self.value_chain_notes:

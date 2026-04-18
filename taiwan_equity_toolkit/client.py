@@ -3,7 +3,7 @@ FinMind API client — thin wrapper around the REST endpoint with async batch su
 
 Prefer `get_multi(...)` over looping `get(...)` for peer analysis: it hits the
 API concurrently and returns a dict keyed by stock_id. This is the single most
-important performance lever when comparing a candidate against peers.
+important performance lever when comparing a candidate against a peer set.
 
 Usage:
     client = FinMindClient(token=load_token())

@@ -127,66 +127,45 @@ class RunTop200ScreenTests(unittest.TestCase):
 
         self.assertEqual([record["stock_id"] for record in final], ["2330"])
 
-    def test_gate4_requires_populated_peer_rankings(self) -> None:
-        comparison = SimpleNamespace(candidate_rankings={"Revenue YoY": (0, 0)})
-
-        passed, reason = screen._evaluate_gate4_comparison(comparison)
-
-        self.assertFalse(passed)
-        self.assertIn("Insufficient populated peer metrics", reason)
-
-    def test_gate4_rejects_candidate_that_is_bottom_ranked_repeatedly(self) -> None:
-        comparison = SimpleNamespace(
-            candidate_rankings={
-                "Revenue YoY": (3, 3),
-                "Gross margin": (3, 3),
-                "Operating margin": (2, 3),
-            }
+    def test_compile_final_annotates_workstream_a_fields(self) -> None:
+        from taiwan_equity_toolkit.states import Status
+        from taiwan_equity_toolkit.workstream_a import (
+            WorkstreamAResult,
+            PeerAlignmentPanel,
         )
 
-        passed, reason = screen._evaluate_gate4_comparison(comparison)
-
-        self.assertFalse(passed)
-        self.assertIn("Bottom-ranked", reason)
-
-    def test_gate4_accepts_candidate_with_real_top_half_strength(self) -> None:
-        comparison = SimpleNamespace(
-            candidate_rankings={
-                "Revenue YoY": (1, 3),
-                "Gross margin": (2, 3),
-                "Operating margin": (3, 3),
-            }
+        wa_result = WorkstreamAResult(
+            stock_id="2330",
+            status=Status.PASSED,
+            cluster="semiconductor",
+            peer_alignment=PeerAlignmentPanel(
+                status=Status.PASSED,
+                candidate="2330",
+                peer_ids=["2303", "3711"],
+                usable_peer_count=3,
+            ),
         )
 
-        passed, reason = screen._evaluate_gate4_comparison(comparison)
-
-        self.assertTrue(passed)
-        self.assertIn("top-half", reason)
-
-    def test_gate5_rejects_placeholder_upstream_rows(self) -> None:
-        class DummyClient:
-            def __init__(self, token: str):
-                self.token = token
-
-        fake_report = SimpleNamespace(
-            position=SimpleNamespace(industries=["Semiconductor"], sub_industries=[]),
-            upstream_signals=[
-                SimpleNamespace(
-                    revenue_yoy=None,
-                    institutional_flow_60d=None,
-                    margin_direction="unknown",
-                )
-            ],
+        final = screen.compile_final(
+            ["2330"],
+            {"2330": SimpleNamespace(total_score=90.0, verdict="Pass", hard_fail_triggered=False)},
+            {"2330": SimpleNamespace(verdict="Enter Now")},
+            {"2330": SimpleNamespace(adv_ntd=100_000_000)},
+            workstream_a_results={"2330": wa_result},
         )
 
-        with patch.object(screen, "FinMindClient", DummyClient):
-            with patch.object(screen.value_chain, "analyze", return_value=fake_report):
-                _, result = screen.run_gate5_single(("token", "2330"))
+        self.assertEqual(final[0]["workstream_a_status"], "passed")
+        self.assertEqual(final[0]["workstream_a_cluster"], "semiconductor")
+        self.assertEqual(final[0]["workstream_a_peer_count"], 3)
 
-        self.assertFalse(result["passed"])
-        self.assertIn("usable upstream", result["reason"])
+    def test_main_uses_workstream_a_and_keeps_top_level_json_contract(self) -> None:
+        from taiwan_equity_toolkit.states import Status
+        from taiwan_equity_toolkit.workstream_a import (
+            WorkstreamAResult,
+            PeerAlignmentPanel,
+            ValueChainPositionPanel,
+        )
 
-    def test_main_keeps_gate1_key_but_gate1_no_longer_rejects(self) -> None:
         class DummyClient:
             def __init__(self, token: str):
                 self.token = token
@@ -204,8 +183,23 @@ class RunTop200ScreenTests(unittest.TestCase):
             triage_result = SimpleNamespace(adv_ntd=123_000_000, passed=True)
             gate3_result = SimpleNamespace(total_score=88.0, verdict="Pass", hard_fail_triggered=False)
             gate65_result = SimpleNamespace(verdict="Enter Now")
-            gate4_result = {"passed": True, "peer_ids": ["2303", "3711"], "comparison": None, "reason": "ok"}
-            gate5_result = {"passed": True, "report": None, "reason": "ok"}
+            wa_result = WorkstreamAResult(
+                stock_id="2330",
+                status=Status.PASSED,
+                cluster="semiconductor",
+                chain_position=ValueChainPositionPanel(
+                    status=Status.PASSED,
+                    cluster="semiconductor",
+                    node="foundry",
+                    source="supply_chain_yaml",
+                ),
+                peer_alignment=PeerAlignmentPanel(
+                    status=Status.PASSED,
+                    candidate="2330",
+                    peer_ids=["2303", "3711"],
+                    usable_peer_count=3,
+                ),
+            )
 
             with patch.object(screen, "FinMindClient", DummyClient):
                 with patch.object(
@@ -219,29 +213,36 @@ class RunTop200ScreenTests(unittest.TestCase):
                     with patch.object(
                         screen,
                         "apply_gate1",
-                        return_value=(
-                            ["2330", "2603"],
-                            {},
-                        ),
+                        return_value=(["2330", "2603"], {}),
                     ):
                         with patch.object(screen, "run_mass_triage", return_value=(["2330"], {"2330": triage_result})):
                             with patch.object(screen, "run_gate3_batch", return_value=(["2330"], {"2330": gate3_result})):
-                                with patch.object(screen, "run_gate4_batch", return_value=(["2330"], {"2330": gate4_result})) as gate4_mock:
-                                    with patch.object(screen, "run_gate5_batch", return_value=(["2330"], {"2330": gate5_result})) as gate5_mock:
-                                        with patch.object(screen, "run_gate65_batch", return_value=(["2330"], {"2330": gate65_result})) as gate65_mock:
-                                            with patch.object(screen, "RESULTS_PATH", str(results_path)):
-                                                final = screen.main()
+                                with patch.object(screen, "run_workstream_a_batch", return_value={"2330": wa_result}) as wa_mock:
+                                    with patch.object(screen, "run_gate65_batch", return_value=(["2330"], {"2330": gate65_result})) as gate65_mock:
+                                        with patch.object(screen, "RESULTS_PATH", str(results_path)):
+                                            final = screen.main()
 
             payload = json.loads(results_path.read_text(encoding="utf-8"))
+            # Top-level contract preserved.
+            self.assertIn("funnel", payload)
+            self.assertIn("top10", payload)
+            self.assertIn("all_ranked", payload)
             self.assertEqual(final[0]["gate3_score"], 88.0)
+            self.assertEqual(final[0]["workstream_a_status"], "passed")
+            self.assertEqual(final[0]["workstream_a_cluster"], "semiconductor")
             self.assertEqual(payload["universe_source"], "snapshot_fallback")
-            self.assertEqual(payload["universe_as_of"], "2026-04-17")
-            self.assertEqual(payload["gate1_rejects"], {})
             self.assertEqual(payload["funnel"]["gate1_pass"], 2)
-            self.assertEqual(payload["funnel"]["gate4_pass"], 1)
-            self.assertEqual(payload["funnel"]["gate5_pass"], 1)
-            gate4_mock.assert_called_once_with(["2330"])
-            gate5_mock.assert_called_once_with(["2330"])
+            self.assertEqual(payload["funnel"]["workstream_a_pass"], 1)
+            self.assertIn("workstream_a_notes", payload)
+            self.assertIn("2330", payload["workstream_a_notes"])
+            self.assertEqual(payload["workstream_a_notes"]["2330"]["cluster"], "semiconductor")
+            # Old keys are gone.
+            self.assertNotIn("gate4_pass", payload["funnel"])
+            self.assertNotIn("gate5_pass", payload["funnel"])
+            self.assertNotIn("gate4_failures", payload)
+            self.assertNotIn("gate5_failures", payload)
+
+            wa_mock.assert_called_once_with(["2330"])
             gate65_mock.assert_called_once_with(["2330"])
 
 

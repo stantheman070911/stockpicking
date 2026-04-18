@@ -359,6 +359,18 @@ class MacroContextConfig:
     twd_lookback_days: int = 180
 
 
+@dataclass
+class WorkstreamAConfig:
+    """Workstream A tuning surface.
+
+    Keeps peer-sampling choices out of the gate logic so Phase 3 can tune
+    breadth without editing code.
+    """
+    sector_signal_peer_cap: int = 5
+    peer_alignment_peer_cap: int = 6
+    macro_history_days: int = 400
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Master config bundle
 # ──────────────────────────────────────────────────────────────────────────
@@ -378,6 +390,7 @@ class FrameworkConfig:
     sizing: SizingCaps = field(default_factory=SizingCaps)
     sell_discipline: SellDisciplineArchetypes = field(default_factory=SellDisciplineArchetypes)
     macro: MacroContextConfig = field(default_factory=MacroContextConfig)
+    workstream_a: WorkstreamAConfig = field(default_factory=WorkstreamAConfig)
 
 
 DEFAULT_CONFIG = FrameworkConfig()

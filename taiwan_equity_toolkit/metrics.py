@@ -9,6 +9,7 @@ is missing — this is deliberate. Silent zeros hide problems.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Optional
 
 import pandas as pd
@@ -371,10 +372,11 @@ def institutional_net_flow(flow_df: pd.DataFrame, lookback_days: int = 60) -> di
     df["date"] = pd.to_datetime(df["date"])
     cutoff = df["date"].max() - pd.Timedelta(days=lookback_days)
     df = df[df["date"] >= cutoff]
+    df["_normalized_name"] = df["name"].astype(str).map(_normalize_investor_name)
 
     for investor_type in ("Foreign_Investor", "Investment_Trust", "Dealer"):
-        sub = df[df["name"].str.contains(investor_type.replace("_", ""), case=False, na=False) |
-                 df["name"].str.contains(investor_type, case=False, na=False)]
+        prefix = _investor_bucket_prefix(investor_type)
+        sub = df[df["_normalized_name"].str.startswith(prefix, na=False)]
         if sub.empty:
             out[investor_type] = Metric(f"{investor_type} net flow", None, " shares", None, "TaiwanStockInstitutionalInvestorsBuySell", "no match")
         else:
@@ -382,3 +384,16 @@ def institutional_net_flow(flow_df: pd.DataFrame, lookback_days: int = 60) -> di
             as_of = sub["date"].max().strftime("%Y-%m-%d")
             out[investor_type] = Metric(f"{investor_type} net flow", net, " shares", as_of, "TaiwanStockInstitutionalInvestorsBuySell", f"last {lookback_days}d sum")
     return out
+
+
+def _normalize_investor_name(name: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(name).lower())
+
+
+def _investor_bucket_prefix(investor_type: str) -> str:
+    mapping = {
+        "Foreign_Investor": "foreigninvestor",
+        "Investment_Trust": "investmenttrust",
+        "Dealer": "dealer",
+    }
+    return mapping[investor_type]

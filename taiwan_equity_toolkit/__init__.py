@@ -6,7 +6,7 @@ with deterministic, citable outputs. ~80% of the mechanical work is pre-built so
 the agent spends tokens on judgment, not arithmetic.
 
 Quick start:
-    from taiwan_equity_toolkit import FinMindClient, mass_triage, gate3, gate65, peers, value_chain
+    from taiwan_equity_toolkit import FinMindClient, mass_triage, gate3, gate65, workstream_a
     from taiwan_equity_toolkit.config import load_token
 
     client = FinMindClient(token=load_token())
@@ -16,8 +16,7 @@ Quick start:
     if triage_result.status != "failed":
         g3 = gate3.run(client, stock_id='2330')
         if g3.verdict == "Pass":
-            peer_cmp = peers.compare(client, '2330', peers=['2303', '6770'])
-            chain_report = value_chain.analyze(client, '2330')
+            wa = workstream_a.run(client, '2330')
             g65 = gate65.run(client, '2330', existing_book=['2317', '2454'])
 
 Module layout:
@@ -27,16 +26,16 @@ Module layout:
     metrics      — Derived financial ratios with source tagging
     mass_triage  — Triage Filter (cheap screens before Gate 3)
     universe     — Top-200 universe builder + annotative sector tilt
+    workstream_a — Industry / macro context (replaces Gate 4 + Gate 5)
     gate3        — Forensic Quality scorecard + hard-fail overrides
     gate65       — Entry Architecture evaluator
-    peers        — Async peer comparison utilities
-    value_chain  — Gate 5 industry-chain position + upstream signals
     memo         — Structured output formatting
 """
 
 from taiwan_equity_toolkit import (
     config, client, parsers, metrics,
-    mass_triage, universe, gate3, gate65, peers, value_chain, memo,
+    mass_triage, universe, gate3, gate65, memo,
+    workstream_a,
 )
 from taiwan_equity_toolkit.client import FinMindClient
 from taiwan_equity_toolkit.metrics import Metric
@@ -52,9 +51,8 @@ __all__ = [
     "metrics",
     "mass_triage",
     "universe",
+    "workstream_a",
     "gate3",
     "gate65",
-    "peers",
-    "value_chain",
     "memo",
 ]

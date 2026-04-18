@@ -8,7 +8,6 @@ Usage:
     export FINMIND_TOKEN="your_token"
     python full_screen_demo.py                # defaults to 2330 (TSMC)
     python full_screen_demo.py 2317           # Hon Hai
-    python full_screen_demo.py 2308 --peers 2330,2303,3711
 """
 
 from __future__ import annotations
@@ -21,27 +20,16 @@ from taiwan_equity_toolkit import (
     mass_triage,
     gate3,
     gate65,
-    peers,
-    value_chain,
     memo,
+    workstream_a,
 )
-from taiwan_equity_toolkit.config import INDUSTRY_ANCHORS, load_token
+from taiwan_equity_toolkit.config import load_token
 from taiwan_equity_toolkit.states import Status
-
-
-def guess_peers(stock_id: str) -> list[str]:
-    """Best-effort peer list from INDUSTRY_ANCHORS. Override with --peers."""
-    for group, members in INDUSTRY_ANCHORS.items():
-        if stock_id in members:
-            return [m for m in members if m != stock_id]
-    return []
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("stock_id", nargs="?", default="2330", help="Target stock code")
-    parser.add_argument("--peers", type=str, default="",
-                        help="Comma-separated peer codes (overrides auto-detect)")
     parser.add_argument("--book", type=str, default="",
                         help="Comma-separated current book for correlation check")
     parser.add_argument("--size-ntd", type=float, default=None,
@@ -49,7 +37,6 @@ def main():
     args = parser.parse_args()
 
     stock_id = args.stock_id
-    peer_list = args.peers.split(",") if args.peers else guess_peers(stock_id)
     book = args.book.split(",") if args.book else []
     intended = args.size_ntd
 
@@ -91,17 +78,22 @@ def main():
         print("⛔ Gate 3 failed on score — screen stops here.")
         sys.exit(0)
 
-    # ── Gate 4 / Gate 5: Peer + value chain ───────────────
-    peer_cmp = None
-    if peer_list:
-        print("──── Gate 4: Cross-Source (Peer) Validation ────")
-        peer_cmp = peers.compare(client, candidate=stock_id, peers=peer_list)
-        print(peer_cmp.summary())
-        print()
-
-    print("──── Gate 5: Value Chain Positioning ────")
-    chain = value_chain.analyze(client, stock_id=stock_id)
-    print(chain.summary())
+    # ── Workstream A ──────────────────────────────────────
+    print("──── Workstream A: Industry / Macro ────")
+    wa = workstream_a.run(client, stock_id=stock_id)
+    print(f"status={wa.status.value} | cluster={wa.cluster or 'unclustered'}")
+    print(
+        "chain="
+        f"{wa.chain_position.source or 'none'} | "
+        f"node={wa.chain_position.node or 'n/a'} | "
+        f"usable_peers={wa.peer_alignment.usable_peer_count}"
+    )
+    if wa.tsmc_anchor.tsmc_revenue_yoy is not None:
+        print(f"tsmc_yoy={wa.tsmc_anchor.tsmc_revenue_yoy:.2f}%")
+    if wa.notes:
+        print("notes:")
+        for note in wa.notes:
+            print(f"  - {note}")
     print()
 
     # ── Gate 6.5 ──────────────────────────────────────────
@@ -124,8 +116,16 @@ def main():
         stock_id=stock_id,
         triage=tr,
         gate3=g3,
-        peer_comparison=peer_cmp,
-        value_chain_notes=chain.summary(),
+        workstream_a_notes="\n".join(
+            [
+                f"Status: {wa.status.value}",
+                f"Cluster: {wa.cluster or 'unclustered'}",
+                f"Chain source: {wa.chain_position.source or 'none'}",
+                f"Usable peer count: {wa.peer_alignment.usable_peer_count}",
+                "Notes:",
+                *[f"- {note}" for note in wa.notes],
+            ]
+        ),
         entry_architecture_notes=g65.summary(),
         verdict="(pending — fill in judgment gates)",
     )

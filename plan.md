@@ -387,18 +387,18 @@ Each phase below specifies: **goal**, **tasks** (checkbox steps), **files touche
 **Dependencies:** Phase 0, Phase 1 (needs YAML), Phase 2 (mass_triage must be gone).
 
 **Tasks:**
-- [ ] **3.1** Create `taiwan_equity_toolkit/workstream_a.py` with public `run(client, stock_id, context=None) -> WorkstreamAResult`. Internal panels:
+- [x] **3.1** Create `taiwan_equity_toolkit/workstream_a.py` with public `run(client, stock_id, context=None) -> WorkstreamAResult`. Internal panels:
     - `sector_tailwind_panel()` — reads `TaiwanStockMonthRevenue` for stock + peers from YAML chain map; computes 3m/12m revenue YoY for the chain cluster.
     - `value_chain_position_panel()` — looks up stock in `taiwan_supply_chain.yaml`, returns `upstream_peers` + `downstream_peers` + `cluster`. If not found, falls back to `TaiwanStockInfo.industry_category` clustering (free).
     - `tsmc_anchor_signal()` — fetches 2330 monthly revenue YoY, reports as a separate indicator for semiconductor-adjacent names.
     - `peer_alignment_panel()` — async batch across up to 6 chain peers: revenue YoY, gross margin, institutional net flow 60d. This absorbs ex-Gate 4 cross-source validation and ex-Gate 5 upstream signals into one panel.
     - `macro_backdrop_panel()` — fetches `InterestRate(FED)`, `GovernmentBondsYield(UST 10Y / 2Y spread)`, `CrudeOilPrices(WTI)`, `TaiwanExchangeRate(USD)`. 景氣對策信號 **not fetched**. Attempted via premium adapter in Phase 10.
-- [ ] **3.2** `WorkstreamAResult` dataclass: `{stock_id, status, cluster, sector_signal, chain_position, tsmc_anchor, peer_alignment, macro_backdrop, notes[]}`. `status` is computed from the panels — `passed` if sector signal is neutral-or-positive AND chain position resolves AND no macro red flag; `failed` is rare here (this workstream is informational, not a hard gate). Most failures collapse to `manual_review_required` where an analyst overlay decides.
-- [ ] **3.3** Write `tests/test_workstream_a.py` — each panel, YAML lookup + fallback, macro backdrop composition, premium-dataset fallback (no 景氣對策信號 call, no industry-chain call).
-- [ ] **3.4** Wire `workstream_a.run()` into `run_top200_screen.py` in place of the current `run_gate4_batch` / `run_gate5_batch` calls. Keep output intermediate for now.
-- [ ] **3.5** Run test suite + `python run_top200_screen.py` against the real free-tier token. Verify no premium-dataset errors.
-- [ ] **3.6** DELETE `taiwan_equity_toolkit/peers.py`, `taiwan_equity_toolkit/value_chain.py`, `tests/test_value_chain.py`. Grep for any lingering imports outside the already-updated `run_top200_screen.py`; `full_screen_demo.py` may still import them — update it to use workstream_a.
-- [ ] **3.7** Commit: `feat: workstream A + delete peers/value_chain (Phase 3)`.
+- [x] **3.2** `WorkstreamAResult` dataclass: `{stock_id, status, cluster, sector_signal, chain_position, tsmc_anchor, peer_alignment, macro_backdrop, notes[]}`. `status` is computed from the panels — `passed` if sector signal is neutral-or-positive AND chain position resolves AND no macro red flag; `failed` is rare here (this workstream is informational, not a hard gate). Most failures collapse to `manual_review_required` where an analyst overlay decides.
+- [x] **3.3** Write `tests/test_workstream_a.py` — each panel, YAML lookup + fallback, macro backdrop composition, premium-dataset fallback (no 景氣對策信號 call, no industry-chain call).
+- [x] **3.4** Wire `workstream_a.run()` into `run_top200_screen.py` in place of the current `run_gate4_batch` / `run_gate5_batch` calls. Keep output intermediate for now.
+- [x] **3.5** Run test suite + `python run_top200_screen.py` against the real free-tier token. Verify no premium-dataset errors.
+- [x] **3.6** DELETE `taiwan_equity_toolkit/peers.py`, `taiwan_equity_toolkit/value_chain.py`, `tests/test_value_chain.py`. Grep for any lingering imports outside the already-updated `run_top200_screen.py`; `full_screen_demo.py` may still import them — update it to use workstream_a.
+- [x] **3.7** Commit: `feat: workstream A + delete peers/value_chain (Phase 3)`.
 
 **Files:** `taiwan_equity_toolkit/workstream_a.py` (NEW), `tests/test_workstream_a.py` (NEW), `run_top200_screen.py` (EDIT), `taiwan_equity_toolkit/full_screen_demo.py` (EDIT), `taiwan_equity_toolkit/peers.py` (DELETE), `taiwan_equity_toolkit/value_chain.py` (DELETE), `tests/test_value_chain.py` (DELETE).
 

@@ -1,5 +1,7 @@
 import unittest
 
+import pandas as pd
+
 from taiwan_equity_toolkit import metrics, parsers
 
 
@@ -70,6 +72,28 @@ class MetricsMissingDataTests(unittest.TestCase):
         ]
 
         self.assertEqual(parsers.ttm(records, 4), [])
+
+    def test_institutional_net_flow_uses_stable_prefix_buckets(self) -> None:
+        flow_df = pd.DataFrame(
+            {
+                "date": ["2026-04-01"] * 5,
+                "name": [
+                    "Foreign_Investor",
+                    "Investment_Trust",
+                    "Dealer_self",
+                    "Dealer_Hedging",
+                    "Foreign_Dealer_Self",
+                ],
+                "buy": [100.0, 50.0, 30.0, 20.0, 999.0],
+                "sell": [0.0, 0.0, 0.0, 0.0, 0.0],
+            }
+        )
+
+        flows = metrics.institutional_net_flow(flow_df, lookback_days=60)
+
+        self.assertEqual(flows["Foreign_Investor"].value, 100.0)
+        self.assertEqual(flows["Investment_Trust"].value, 50.0)
+        self.assertEqual(flows["Dealer"].value, 50.0)
 
 
 if __name__ == "__main__":

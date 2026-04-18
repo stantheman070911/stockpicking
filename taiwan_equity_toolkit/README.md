@@ -30,7 +30,7 @@ For a full end-to-end demo:
 
 ```bash
 python taiwan_equity_toolkit/full_screen_demo.py 2330
-python taiwan_equity_toolkit/full_screen_demo.py 2330 --peers 2303,6770 --book 2317,2454 --size-ntd 10000000
+python taiwan_equity_toolkit/full_screen_demo.py 2330 --book 2317,2454 --size-ntd 10000000
 ```
 
 ---
@@ -51,16 +51,16 @@ The agent's job is to call the right function for the current gate, interpret th
 ## Quick start — full screen on one name
 
 ```python
-from taiwan_equity_toolkit import FinMindClient, triage, gate3, peers
-from taiwan_equity_toolkit.config import load_token, INDUSTRY_ANCHORS
+from taiwan_equity_toolkit import FinMindClient, mass_triage, gate3, workstream_a
+from taiwan_equity_toolkit.config import load_token
 
 client = FinMindClient(token=load_token())
 
 # Step 1 — Triage
-triage_result = triage.run(client, stock_id='2330')
+triage_result = mass_triage.run(client, stock_id='2330')
 print(triage_result.summary())
 
-if not triage_result.passed:
+if triage_result.status == "failed":
     # Stop here. Document the failure. Do not proceed to Gate 3.
     pass
 else:
@@ -71,14 +71,10 @@ else:
     # g3.total_score is out of 100
     # g3.hard_fail_triggered is a boolean
 
-    # Step 3 — Gate 4 peer comparison (if Gate 3 passed)
+    # Step 3 — Workstream A (if Gate 3 passed)
     if g3.verdict == "Pass":
-        peer_cmp = peers.compare(
-            client,
-            candidate='2330',
-            peers=INDUSTRY_ANCHORS['foundry'],
-        )
-        print(peer_cmp.summary())
+        wa = workstream_a.run(client, stock_id='2330')
+        print(wa.status, wa.cluster)
 ```
 
 ---
@@ -181,40 +177,32 @@ if g3.hard_fail_triggered:
             print(f"HARD FAIL: {hf.name} — {hf.detail}")
 ```
 
-### `peers.compare(client, candidate, peers)`
-Async batch peer comparison for Gate 4 cross-source validation. Returns `PeerComparison` with:
+### `workstream_a.run(client, stock_id)`
+Industry / macro context workstream replacing the legacy Gate 4 + Gate 5 split. Returns `WorkstreamAResult` with:
 
-- `.revenue_yoy`, `.gross_margin`, `.operating_margin`, `.cfo_to_ni` — ranked DataFrames
-- `.correlation_matrix` — 90-day return correlation, symmetric
-- `.institutional_flow_60d` — net flow by investor type across all peers
-- `.candidate_rankings` — dict mapping metric → (rank, total)
-- `.summary()` — pre-formatted markdown block
+- `.status` — `passed` / `manual_review_required` / `failed`
+- `.cluster` — supply-chain cluster or industry fallback
+- `.sector_signal` — revenue cluster context
+- `.chain_position` — upstream / downstream chain placement
+- `.tsmc_anchor` — 2330 revenue indicator
+- `.peer_alignment` — revenue, margin, institutional-flow alignment
+- `.macro_backdrop` — Fed / UST curve / WTI / TWD context
 
 ```python
-cmp = peers.compare(client, '2330', peers=['2303', '6770'])
-print(cmp.summary())
-print(cmp.candidate_rankings)
-# {'Revenue YoY': (1, 3), 'Gross margin': (1, 3), ...}
+from taiwan_equity_toolkit import workstream_a
+
+wa = workstream_a.run(client, '2330')
+print(wa.status, wa.cluster)
+print(wa.peer_alignment.usable_peer_count)
 ```
 
-### `value_chain.analyze(client, stock_id)`
-Gate 5 industry-chain mapping and upstream signal collection. Uses `TaiwanStockIndustryChain` to find chain peers, then async-batch queries revenue, margins, and institutional flows.
+Batch the same workstream across a screen universe if needed:
 
 ```python
-from taiwan_equity_toolkit import value_chain
-
-report = value_chain.analyze(client, '2330')
-print(report.summary())
-# Industries: 半導體業
-# Peers in chain: 28 — 2303, 2449, 3034, ...
-# Upstream / chain signals:
-#   - 2303: Rev YoY +8.2% | Margin expanding | Inst flow +120,000,000 (2024-09-30)
-```
-
-Override the auto-detected upstream list if needed:
-
-```python
-report = value_chain.analyze(client, '2330', override_upstream=['3715', '3443'])
+results = workstream_a.run_all(
+    client_factory=lambda: FinMindClient(token=load_token()),
+    stock_ids=['2330', '2303', '3711'],
+)
 ```
 
 ### `gate65.run(client, stock_id, existing_book=...)`
@@ -283,7 +271,7 @@ These are judgment calls the agent must still make:
 
 - **Gate 1 industry direction** — requires synthesizing macro indicators with market context
 - **Gate 2 business model articulation** — qualitative understanding
-- **Gate 5 value chain lead/lag timing** — industry-specific expertise required
+- **Workstream A sector / chain lead-lag timing** — industry-specific expertise required
 - **Gate 6 strategic portfolio fit** — depends on existing book
 - **Gate 6.5 crowding judgment** — requires current market context
 - **Gate 7 thesis writing and invalidation criteria** — the actual investment view
@@ -333,10 +321,10 @@ Rough estimates for a single-name full screen:
 |---|---|---|
 | Triage | 5–6 | Disposition, suspension, price, monthly revenue, financials (freshness check), capital reduction |
 | Gate 3 | 7 | Financials, balance sheet, cash flow, monthly rev, institutional flow, foreign ownership, margin/short, plus news for 3E |
-| Gate 4 (peers) | 5 × (1 + peer_count) | via async batch |
+| Workstream A | 5 × (1 + peer_count) | via async batch |
 | Gate 6.5 | 3–4 | PER, price adj, price limit, optional futures/options data |
 
-Target: ~30–40 calls per full single-name screen. Peer comparison at 3 peers adds ~20 calls via batch.
+Target: ~30–40 calls per full single-name screen. Workstream A at 3 peer names adds ~20 calls via batch.
 
 ---
 
@@ -350,4 +338,4 @@ Natural next additions:
 4. **Branch-broker persistent-buyer detector** — Sponsor-tier `TaiwanStockTradingDailyReport` analysis
 5. **Post-trade attribution** — logs which gates were predictive (covered elsewhere)
 
-Add new metrics to `metrics.py`, new checks to `gate3.py` components, new thresholds to `config.py`. Keep the public API (`triage.run`, `gate3.run`, `peers.compare`) stable.
+Add new metrics to `metrics.py`, new checks to `gate3.py` components, new thresholds to `config.py`. Keep the public API (`mass_triage.run`, `gate3.run`, `workstream_a.run`) stable.
